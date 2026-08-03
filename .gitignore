@@ -1,0 +1,39 @@
+# Claude Code (로컬 전용)
+CLAUDE.md
+.claude/
+
+# 환경
+.env
+.env.local
+
+# 캐시
+__pycache__/
+*.pyc
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+
+# 의존성
+node_modules/
+venv/
+.venv/
+
+# 빌드
+dist/
+build/
+.next/
+
+# 산출물
+output/
+uploads/
+*.zip
+*.log
+
+# 대용량 데이터·모델 (git 저장소 무게 관리, GitHub 100MB 제한)
+data/
+models/*.joblib
+models/*.keras
+docs/*.pdf
+
+# Gradio 자동 생성 캐시
+.gradio/
