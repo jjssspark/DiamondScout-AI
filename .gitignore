@@ -24,7 +24,8 @@ build/
 .next/
 
 # 산출물
-output/
+output/*
+!output/screenshots/
 uploads/
 *.zip
 *.log
