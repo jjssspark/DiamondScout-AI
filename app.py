@@ -1385,13 +1385,18 @@ CUSTOM_CSS = """
     font-weight: 800 !important; box-shadow: 0 4px 10px rgba(200,16,46,0.28) !important;
 }
 .ds-btn-next:hover, .ds-btn-analyze:hover { box-shadow: 0 6px 16px rgba(200,16,46,0.4) !important; transform: translateY(-1px); }
-.ds-btn-analyze { font-size: 18px !important; padding: 16px !important; margin-top: 12px !important; }
 .ds-btn-prev, .ds-btn-reset {
     background: transparent !important; color: #6b6555 !important; border: 1.5px solid #ddd8ca !important;
     box-shadow: none !important; font-weight: 700 !important;
 }
 .ds-btn-prev:hover, .ds-btn-reset:hover { border-color: #14203c !important; color: #14203c !important; }
 .ds-btn-reset { margin-bottom: 10px !important; }
+/* 이전/다음/분석 실행 버튼은 한 줄(Row)에 나란히 놓이므로 높이를 강제로 맞춘다.
+   .ds-btn-analyze는 Gradio variant="primary" 기본 패딩이 달라 그대로 두면 더 커 보였다. */
+.ds-btn-prev, .ds-btn-next, .ds-btn-analyze {
+    padding: 12px 18px !important; min-height: 46px !important; box-sizing: border-box !important;
+    margin-top: 0 !important;
+}
 .ds-btn-pdf {
     background: transparent !important; color: #14203c !important; border: 1.5px solid #14203c !important;
     font-size: 15px !important; padding: 11px !important; font-weight: 700 !important; box-shadow: none !important;
