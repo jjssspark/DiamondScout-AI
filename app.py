@@ -1373,8 +1373,8 @@ CUSTOM_CSS = """
 .ds-scoreboard input[type=number] { font-family: 'Share Tech Mono', monospace !important; }
 /* 주자 베이스 카드 */
 /* ===== 주자 상황 다이아몬드 — 체크박스를 실제 루 위치에 맞춰 배치하고 베이스 모양으로 스타일링 ===== */
-.ds-diamond-wrap { justify-content: center !important; padding: 6px 0 26px !important; }
-.ds-diamond { position: relative !important; width: 240px; height: 200px; margin: 0 auto; }
+.ds-diamond-wrap { justify-content: center !important; padding: 56px 0 26px !important; overflow: visible !important; }
+.ds-diamond { position: relative !important; width: 240px; height: 200px; margin: 0 auto; overflow: visible !important; }
 .ds-diamond::after {
     content: "HOME"; position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
     font-family: 'Share Tech Mono', monospace; font-size: 10px; color: #9a927c; letter-spacing: 0.08em;
@@ -1383,7 +1383,7 @@ CUSTOM_CSS = """
     position: absolute !important; width: 96px !important; background: transparent !important;
     border: none !important; padding: 0 !important; box-shadow: none !important;
 }
-.ds-base-card.ds-base-2b { top: 0; left: 50%; transform: translateX(-50%); }
+.ds-base-card.ds-base-2b { top: 44px; left: 50%; transform: translateX(-50%); }
 .ds-base-card.ds-base-3b { bottom: 34px; left: 0; }
 .ds-base-card.ds-base-1b { bottom: 34px; right: 0; }
 .ds-base-card label {
