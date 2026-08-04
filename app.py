@@ -1544,6 +1544,32 @@ CUSTOM_CSS = """
     }
     .ds-panel, .ds-board, .ds-qa-panel { padding: 16px 14px !important; }
 }
+
+/* ===== 좌우 여백(카드 폭 밖) 장식 배경 — 야구 실밥 느낌의 대각선 패턴 + 은은한 포인트 컬러 ===== */
+body {
+    background:
+        radial-gradient(circle at 4% 15%, rgba(200,16,46,0.06) 0%, transparent 42%),
+        radial-gradient(circle at 96% 80%, rgba(20,32,60,0.07) 0%, transparent 42%),
+        repeating-linear-gradient(135deg, rgba(20,32,60,0.035) 0px, rgba(20,32,60,0.035) 2px, transparent 2px, transparent 26px),
+        #f4f2ec !important;
+}
+
+/* ===== 랜딩 화면 ===== */
+.ds-landing-hero { text-align: center; padding: 34px 20px 10px; }
+.ds-landing-badge {
+    display: inline-block; background: rgba(200,16,46,0.08); color: #c8102e; border: 1px solid rgba(200,16,46,0.3);
+    border-radius: 999px; font-size: 13px; font-weight: 700; padding: 5px 14px; letter-spacing: 0.05em;
+}
+.ds-landing-title { font-size: 40px; font-weight: 800; color: #14203c; margin: 14px 0 8px; }
+.ds-landing-sub { font-size: 18px; color: #4b463c; max-width: 620px; margin: 0 auto; line-height: 1.6; }
+.ds-landing-features { gap: 16px !important; margin: 24px 0 !important; }
+.ds-landing-feature {
+    background: #ffffff; border: 1px solid #e6e1d3; border-radius: 14px; padding: 22px 20px; height: 100%;
+    box-shadow: 0 4px 14px rgba(20,32,60,0.06);
+}
+.ds-lf-title { font-family: 'Teko', sans-serif; font-size: 21px; font-weight: 800; color: #c8102e; margin-bottom: 8px; }
+.ds-lf-desc { font-size: 15px; color: #4b463c; line-height: 1.5; }
+.ds-landing-start { display: block !important; margin: 8px auto 30px !important; min-width: 220px; font-size: 19px !important; }
 """
 
 
@@ -1742,7 +1768,30 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
     gr.Markdown("# ⚾ DiamondScout AI")
     gr.Markdown("투수 모드 / 타자 모드로 나눠, 다음 구종 예측(RandomForest) + 위험도 + 상대 분석 + Q&A를 한 화면에서 확인하는 전력분석 데모")
 
-    with gr.Tabs():
+    with gr.Column(elem_classes=["ds-landing"], visible=True) as landing_view:
+        gr.HTML("""
+        <div class="ds-landing-hero">
+          <div class="ds-landing-badge">전력분석 데모</div>
+          <h2 class="ds-landing-title">다음 투구를 미리 읽는다</h2>
+          <p class="ds-landing-sub">투수·타자 관점에서 다음 구종을 예측하고, 위험도와 상대 약점을 코칭 보드로 정리해드립니다.</p>
+        </div>
+        """)
+        with gr.Row(elem_classes=["ds-landing-features"]):
+            gr.HTML(
+                '<div class="ds-landing-feature"><div class="ds-lf-title">다음 구종 예측</div>'
+                '<div class="ds-lf-desc">상황·매치업을 종합해 Top-3 구종을 추천합니다</div></div>'
+            )
+            gr.HTML(
+                '<div class="ds-landing-feature"><div class="ds-lf-title">위험도 분석</div>'
+                '<div class="ds-lf-desc">패턴 노출·장타·홈런·볼넷 위험을 한눈에 확인합니다</div></div>'
+            )
+            gr.HTML(
+                '<div class="ds-landing-feature"><div class="ds-lf-title">Instant Scout Q&A</div>'
+                '<div class="ds-lf-desc">분석 결과를 근거로 후속 질문에 즉석으로 답합니다</div></div>'
+            )
+        landing_start_btn = gr.Button("시작하기", variant="primary", elem_classes=["ds-btn-analyze", "ds-landing-start"])
+
+    with gr.Tabs(visible=False) as main_tabs:
         # ------------------------------------------------------------------
         # 투수 모드
         # ------------------------------------------------------------------
@@ -2045,6 +2094,11 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 btn.click(fn=lambda q=question: q, outputs=[b_chat_input]).then(
                     fn=handle_chat, inputs=[b_chat_input, b_chatbot, b_result_state], outputs=[b_chatbot, b_chat_input],
                 )
+
+    landing_start_btn.click(
+        fn=lambda: (gr.Column(visible=False), gr.Tabs(visible=True)),
+        outputs=[landing_view, main_tabs],
+    )
 
 
 if __name__ == "__main__":
