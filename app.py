@@ -1395,57 +1395,71 @@ CUSTOM_CSS = """
 .ds-scoreboard input[type=range] { accent-color: #c8102e; }
 .ds-scoreboard input[type=number] { font-family: 'Share Tech Mono', monospace !important; }
 /* 주자 베이스 카드 */
-/* ===== 주자 상황 다이아몬드 — 체크박스를 실제 루 위치에 맞춰 배치하고, 잔디+흙 미니 필드 위에
-   베이스 모양으로 스타일링한다 ===== */
+/* ===== 주자 상황 다이아몬드 — 실제 야구장 항공샷처럼 흙(basepath) 테두리 + 잔디 인필드 +
+   마운드를 그리고, 체크박스를 루 위치의 작은 다이아몬드 마커로 배치한다 ===== */
 .ds-diamond-wrap {
-    justify-content: center !important; padding: 60px 20px 34px !important; overflow: visible !important;
-    background: radial-gradient(ellipse 100% 90% at 50% 32%, #eef6e4 0%, #dcecc7 60%, #cde3b4 100%) !important;
+    justify-content: center !important; padding: 56px 50px 40px !important; overflow: visible !important;
+    background: #eef2e6 !important;
     border: 1px solid #d2e2ba !important; border-radius: 20px !important;
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.6) !important;
 }
-.ds-diamond { position: relative !important; width: 280px; height: 280px; margin: 0 auto; overflow: visible !important; }
+.ds-diamond { position: relative !important; width: 320px; height: 320px; margin: 0 auto; overflow: visible !important; }
+/* 흙(basepath) 테두리 다이아몬드 — border가 흙색, 안쪽 fill이 잔디색 */
 .ds-diamond::before {
-    content: ""; position: absolute; top: 50%; left: 50%; width: 150px; height: 150px; z-index: 0;
-    background: linear-gradient(135deg, #dcb888 0%, #c89f6c 55%, #bb9260 100%);
-    border: 3px solid #a97f4e; border-radius: 8px; transform: translate(-50%, -50%) rotate(45deg);
-    box-shadow: inset 0 0 22px rgba(70,45,15,0.18);
+    content: ""; position: absolute; top: 50%; left: 50%; width: 160px; height: 160px; z-index: 0;
+    background: linear-gradient(135deg, #8fb673 0%, #7fa668 100%);
+    border: 24px solid #c89f6c; border-radius: 10px; transform: translate(-50%, -50%) rotate(45deg);
+    box-shadow: inset 0 0 0 3px rgba(169,127,78,0.6), 0 6px 16px rgba(70,45,15,0.15);
 }
 .ds-diamond::after {
-    content: "HOME"; position: absolute; top: 256px; left: 50%; transform: translateX(-50%); z-index: 1;
+    content: "HOME"; position: absolute; top: 102.8%; left: 50%; transform: translateX(-50%); z-index: 1;
     font-family: 'Share Tech Mono', monospace; font-size: 10px; color: #7c8a63; letter-spacing: 0.08em;
 }
 /* Gradio가 절대배치 자식들을 감싸는 .form 래퍼의 auto-height가 거의 0으로 붕괴되면서
    overflow:hidden(기본값)에 베이스가 잘려 보이는 문제 — 명시적으로 visible 처리 */
 .ds-diamond .form { overflow: visible !important; height: auto !important; }
+/* 마운드 — .form이 체크박스 3개를 감싸는 실제 DOM 요소라 여기 붙여야 다이아몬드 중앙에 정확히 놓인다 */
+.ds-diamond .form::before {
+    content: ""; position: absolute; top: 50%; left: 50%; width: 34px; height: 34px; z-index: 0;
+    background: radial-gradient(circle at 35% 32%, #d3ab7d, #a97f4e); border-radius: 50%;
+    box-shadow: 0 3px 6px rgba(40,25,8,0.35); transform: translate(-50%, -50%);
+}
 .ds-base-card {
     position: absolute !important; width: 96px !important; background: transparent !important;
     border: none !important; padding: 0 !important; box-shadow: none !important; z-index: 2;
     overflow: visible !important; height: auto !important; transform: translate(-50%, -50%);
 }
-/* 2루=인필드 상단 꼭짓점 / 3루=좌측 꼭짓점 / 1루=우측 꼭짓점 (인필드 다이아몬드와 동일 중심·반지름 기준) */
-.ds-base-card.ds-base-2b { top: 12.1%; left: 50%; }
-.ds-base-card.ds-base-3b { top: 50%; left: 12.1%; }
-.ds-base-card.ds-base-1b { top: 50%; left: 87.9%; }
+/* 2루=인필드 상단 꼭짓점 / 3루=좌측 꼭짓점 / 1루=우측 꼭짓점보다 한 칸 더 바깥으로 띄워
+   흙/잔디 필드 테두리와 겹치지 않게 한다 */
+.ds-base-card.ds-base-2b { top: -4.7%; left: 50%; }
+.ds-base-card.ds-base-3b { top: 50%; left: -4.7%; }
+.ds-base-card.ds-base-1b { top: 50%; left: 104.7%; }
 .ds-base-card label {
     display: flex !important; flex-direction: column-reverse !important; align-items: center !important; gap: 8px;
     cursor: pointer;
 }
 .ds-base-card label span {
-    font-size: 14px !important; font-weight: 800; color: #ffffff; letter-spacing: 0.02em;
-    text-shadow: 0 1px 3px rgba(0,0,0,0.35);
+    font-size: 14px !important; font-weight: 800; color: #4a4638; letter-spacing: 0.02em;
+    transition: all 0.15s ease;
 }
 .ds-base-card input[type=checkbox] {
-    appearance: none; -webkit-appearance: none; width: 46px !important; height: 46px !important; margin: 0 !important;
+    appearance: none; -webkit-appearance: none; width: 40px !important; height: 40px !important; margin: 0 !important;
     background: linear-gradient(145deg, #fffdf8, #ece6d4); border: 2.5px solid #ffffff; border-radius: 7px;
-    transform: rotate(45deg); cursor: pointer; transition: all 0.15s ease;
+    transform: rotate(45deg); cursor: pointer; transition: all 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
     box-shadow: 0 3px 8px rgba(40,30,10,0.25), inset 0 -2px 3px rgba(0,0,0,0.06);
 }
-.ds-base-card input[type=checkbox]:hover { border-color: #c8102e; transform: rotate(45deg) scale(1.06); }
+.ds-base-card input[type=checkbox]:hover { border-color: #c8102e; transform: rotate(45deg) scale(1.1); }
+/* 체크 시 확실히 티나게: 확대 + 진한 레드 + 이중 글로우 링 */
 .ds-base-card input[type=checkbox]:checked {
-    background: linear-gradient(145deg, #e0294a, #a80d24) !important; border-color: #ffffff !important;
-    box-shadow: 0 0 0 6px rgba(200,16,46,0.22), 0 3px 10px rgba(168,13,36,0.5);
+    background: linear-gradient(145deg, #ff3b57, #b3081f) !important; border-color: #ffffff !important;
+    border-width: 3px !important; transform: rotate(45deg) scale(1.4);
+    box-shadow: 0 0 0 4px rgba(255,255,255,0.9), 0 0 0 9px rgba(200,16,46,0.35),
+                0 0 18px 4px rgba(200,16,46,0.5), 0 4px 12px rgba(168,13,36,0.55);
 }
-.ds-base-card:has(input:checked) label span { color: #ffffff; }
+.ds-base-card:has(input:checked) label span {
+    color: #ffffff; background: #c8102e; padding: 2px 10px; border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(168,13,36,0.4);
+}
 /* 버튼: Primary(레드)/Ghost(아웃라인) 2종만 사용 */
 .gradio-container button { font-size: 16.5px !important; border-radius: 8px !important; }
 .ds-btn-analyze {
@@ -1791,8 +1805,13 @@ def _step_dot_updates(step: int):
     )
 
 
+def _analyze_btn_update(step: int):
+    """분석 실행 버튼은 마지막 스텝(STEP 4)에서만 노출한다."""
+    return gr.Button(visible=int(step) == 4)
+
+
 def _goto_step_1():
-    return (gr.Tabs(selected=0), 1, *_step_dot_updates(1))
+    return (gr.Tabs(selected=0), 1, *_step_dot_updates(1), _analyze_btn_update(1))
 
 
 def _chip_goto(target: int, current_step) -> tuple:
@@ -1801,7 +1820,7 @@ def _chip_goto(target: int, current_step) -> tuple:
     건너뛰는 것을 막기 위해 '다음' 버튼을 눌러야만 전진하도록 강제한다."""
     current = int(current_step)
     step = target if target <= current else current
-    return (gr.Tabs(selected=step - 1), step, *_step_dot_updates(step))
+    return (gr.Tabs(selected=step - 1), step, *_step_dot_updates(step), _analyze_btn_update(step))
 
 
 def _goto_step_2(current_step):
@@ -1822,12 +1841,12 @@ def _step_prev(current_step: int):
     갱신이 반영되지 않는 문제가 있어 (스텝2->3, 3->4에서 재현), Gradio가 이런
     스텝형 전환을 위해 제공하는 gr.Tabs(selected=) 방식으로 바꿨다."""
     target = max(1, int(current_step) - 1)
-    return (gr.Tabs(selected=target - 1), target, *_step_dot_updates(target))
+    return (gr.Tabs(selected=target - 1), target, *_step_dot_updates(target), _analyze_btn_update(target))
 
 
 def _step_next(current_step: int):
     target = min(4, int(current_step) + 1)
-    return (gr.Tabs(selected=target - 1), target, *_step_dot_updates(target))
+    return (gr.Tabs(selected=target - 1), target, *_step_dot_updates(target), _analyze_btn_update(target))
 
 
 with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
@@ -1925,7 +1944,7 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
             with gr.Row():
                 p_prev_btn = gr.Button("⬅ 이전", elem_classes=["ds-btn-prev"])
                 p_next_btn = gr.Button("다음 ➡", elem_classes=["ds-btn-next"])
-                p_analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn-analyze"])
+                p_analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn-analyze"], visible=False)
 
             p_reset_btn = gr.Button("다시 분석", elem_classes=["ds-btn-reset"])
             p_status_output = gr.HTML()
@@ -1985,7 +2004,7 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
             )
             p_pdf_btn.click(fn=generate_pdf, inputs=[p_result_state], outputs=[p_pdf_file_output])
 
-            p_wizard_outputs = [p_wizard_tabs, p_step_state, p_chip1, p_chip2, p_chip3, p_chip4]
+            p_wizard_outputs = [p_wizard_tabs, p_step_state, p_chip1, p_chip2, p_chip3, p_chip4, p_analyze_btn]
             p_matchup_inputs = [p_pitcher_id_input, p_batter_id_input]
             for comp in p_matchup_inputs:
                 comp.change(fn=render_pitcher_matchup_summary, inputs=p_matchup_inputs, outputs=[p_matchup_output])
@@ -2077,7 +2096,7 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
             with gr.Row():
                 b_prev_btn = gr.Button("⬅ 이전", elem_classes=["ds-btn-prev"])
                 b_next_btn = gr.Button("다음 ➡", elem_classes=["ds-btn-next"])
-                b_analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn-analyze"])
+                b_analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn-analyze"], visible=False)
 
             b_reset_btn = gr.Button("다시 분석", elem_classes=["ds-btn-reset"])
             b_status_output = gr.HTML()
@@ -2137,7 +2156,7 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
             )
             b_pdf_btn.click(fn=generate_pdf, inputs=[b_result_state], outputs=[b_pdf_file_output])
 
-            b_wizard_outputs = [b_wizard_tabs, b_step_state, b_chip1, b_chip2, b_chip3, b_chip4]
+            b_wizard_outputs = [b_wizard_tabs, b_step_state, b_chip1, b_chip2, b_chip3, b_chip4, b_analyze_btn]
             b_matchup_inputs = [b_batter_id_input, b_pitcher_id_input]
             for comp in b_matchup_inputs:
                 comp.change(fn=render_batter_matchup_summary, inputs=b_matchup_inputs, outputs=[b_matchup_output])
