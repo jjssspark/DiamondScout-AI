@@ -108,11 +108,13 @@ EXAMPLE_QUESTIONS = [
 # 드롭다운에서 고르면 ID 입력창에 해당 ID가 채워진다.
 _demo_players_df = pd.read_csv(os.path.join("data", "processed", "demo_players_2025.csv"))
 DEMO_PITCHER_CHOICES = [
-    (row["display_label"], int(row["id"]))
+    (row["name"], int(row["id"]))
     for _, row in _demo_players_df[_demo_players_df["role"] == "pitcher"].iterrows()
 ]
+# 데모 CSV에 타자는 이름 데이터가 없어(name 컬럼 공란) 이름을 보여줄 수 없다 —
+# 대신 원시 ID 나열("596019 | L | 2894구")보다 읽기 쉬운 "타자 {id}" 형태로만 표시한다.
 DEMO_BATTER_CHOICES = [
-    (row["display_label"], int(row["id"]))
+    (f"타자 {int(row['id'])}", int(row["id"]))
     for _, row in _demo_players_df[_demo_players_df["role"] == "batter"].iterrows()
 ]
 
@@ -1836,7 +1838,7 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 p_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
                 p_pdf_file_output = gr.File(label="다운로드 파일")
 
-            with gr.Group(elem_classes=["ds-qa-panel"]):
+            with gr.Group(elem_classes=["ds-qa-panel"], visible=False) as p_qa_group:
                 gr.HTML('<div class="ds-qa-title">Instant Scout Q&A</div>')
                 with gr.Row():
                     p_example_btns = [gr.Button(q, size="sm") for q in EXAMPLE_QUESTIONS]
@@ -1862,6 +1864,8 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 ],
             ).then(
                 fn=lambda: gr.Group(visible=True), outputs=[p_board_group],
+            ).then(
+                fn=lambda: gr.Group(visible=True), outputs=[p_qa_group],
             )
             p_pdf_btn.click(fn=generate_pdf, inputs=[p_result_state], outputs=[p_pdf_file_output])
 
@@ -1985,7 +1989,7 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 b_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
                 b_pdf_file_output = gr.File(label="다운로드 파일")
 
-            with gr.Group(elem_classes=["ds-qa-panel"]):
+            with gr.Group(elem_classes=["ds-qa-panel"], visible=False) as b_qa_group:
                 gr.HTML('<div class="ds-qa-title">Instant Scout Q&A</div>')
                 with gr.Row():
                     b_example_btns = [gr.Button(q, size="sm") for q in EXAMPLE_QUESTIONS]
@@ -2011,6 +2015,8 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 ],
             ).then(
                 fn=lambda: gr.Group(visible=True), outputs=[b_board_group],
+            ).then(
+                fn=lambda: gr.Group(visible=True), outputs=[b_qa_group],
             )
             b_pdf_btn.click(fn=generate_pdf, inputs=[b_result_state], outputs=[b_pdf_file_output])
 
