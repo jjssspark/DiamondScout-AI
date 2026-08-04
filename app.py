@@ -1372,16 +1372,28 @@ CUSTOM_CSS = """
 .ds-scoreboard input[type=range] { accent-color: #c8102e; }
 .ds-scoreboard input[type=number] { font-family: 'Share Tech Mono', monospace !important; }
 /* 주자 베이스 카드 */
-/* ===== 주자 상황 다이아몬드 — 체크박스를 실제 루 위치에 맞춰 배치하고 베이스 모양으로 스타일링 ===== */
-.ds-diamond-wrap { justify-content: center !important; padding: 56px 0 26px !important; overflow: visible !important; }
+/* ===== 주자 상황 다이아몬드 — 체크박스를 실제 루 위치에 맞춰 배치하고, 잔디+흙 미니 필드 위에
+   베이스 모양으로 스타일링한다 ===== */
+.ds-diamond-wrap {
+    justify-content: center !important; padding: 60px 20px 34px !important; overflow: visible !important;
+    background: radial-gradient(ellipse 100% 90% at 50% 32%, #eef6e4 0%, #dcecc7 60%, #cde3b4 100%) !important;
+    border: 1px solid #d2e2ba !important; border-radius: 20px !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.6) !important;
+}
 .ds-diamond { position: relative !important; width: 240px; height: 200px; margin: 0 auto; overflow: visible !important; }
+.ds-diamond::before {
+    content: ""; position: absolute; top: 50%; left: 50%; width: 148px; height: 148px; z-index: 0;
+    background: linear-gradient(135deg, #dcb888 0%, #c89f6c 55%, #bb9260 100%);
+    border: 3px solid #a97f4e; border-radius: 8px; transform: translate(-50%, -50%) rotate(45deg);
+    box-shadow: inset 0 0 22px rgba(70,45,15,0.18);
+}
 .ds-diamond::after {
-    content: "HOME"; position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
-    font-family: 'Share Tech Mono', monospace; font-size: 10px; color: #9a927c; letter-spacing: 0.08em;
+    content: "HOME"; position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%); z-index: 1;
+    font-family: 'Share Tech Mono', monospace; font-size: 10px; color: #7c8a63; letter-spacing: 0.08em;
 }
 .ds-base-card {
     position: absolute !important; width: 96px !important; background: transparent !important;
-    border: none !important; padding: 0 !important; box-shadow: none !important;
+    border: none !important; padding: 0 !important; box-shadow: none !important; z-index: 2;
 }
 .ds-base-card.ds-base-2b { top: 44px; left: 50%; transform: translateX(-50%); }
 .ds-base-card.ds-base-3b { bottom: 34px; left: 0; }
@@ -1390,17 +1402,22 @@ CUSTOM_CSS = """
     display: flex !important; flex-direction: column-reverse !important; align-items: center !important; gap: 8px;
     cursor: pointer;
 }
-.ds-base-card label span { font-size: 14px !important; font-weight: 700; color: #6b6555; }
+.ds-base-card label span {
+    font-size: 14px !important; font-weight: 800; color: #ffffff; letter-spacing: 0.02em;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.35);
+}
 .ds-base-card input[type=checkbox] {
-    appearance: none; -webkit-appearance: none; width: 44px !important; height: 44px !important; margin: 0 !important;
-    background: #f7f5ef; border: 2.5px solid #ddd8ca; border-radius: 6px; transform: rotate(45deg);
-    cursor: pointer; transition: all 0.15s ease;
+    appearance: none; -webkit-appearance: none; width: 46px !important; height: 46px !important; margin: 0 !important;
+    background: linear-gradient(145deg, #fffdf8, #ece6d4); border: 2.5px solid #ffffff; border-radius: 7px;
+    transform: rotate(45deg); cursor: pointer; transition: all 0.15s ease;
+    box-shadow: 0 3px 8px rgba(40,30,10,0.25), inset 0 -2px 3px rgba(0,0,0,0.06);
 }
-.ds-base-card input[type=checkbox]:hover { border-color: #c8102e; }
+.ds-base-card input[type=checkbox]:hover { border-color: #c8102e; transform: rotate(45deg) scale(1.06); }
 .ds-base-card input[type=checkbox]:checked {
-    background: #c8102e !important; border-color: #c8102e !important; box-shadow: 0 0 0 6px rgba(200,16,46,0.15);
+    background: linear-gradient(145deg, #e0294a, #a80d24) !important; border-color: #ffffff !important;
+    box-shadow: 0 0 0 6px rgba(200,16,46,0.22), 0 3px 10px rgba(168,13,36,0.5);
 }
-.ds-base-card:has(input:checked) label span { color: #c8102e; }
+.ds-base-card:has(input:checked) label span { color: #ffffff; }
 /* 버튼: Primary(레드)/Ghost(아웃라인) 2종만 사용 */
 .gradio-container button { font-size: 16.5px !important; border-radius: 8px !important; }
 .ds-btn-analyze {
