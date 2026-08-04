@@ -564,11 +564,11 @@ def _render_strike_zone_board(
         rank = traj.get("rank", 3)
         path_d = _trajectory_path(trajectory_start, end, traj.get("pitch_label", "OTHER"), lateral_sign)
         if rank == 1:
-            color, width, opacity, ball_r = "#fde68a", 4.2, 0.85, 7
+            color, width, opacity, ball_r = "#c8102e", 4.2, 0.85, 7
         elif rank == 2:
-            color, width, opacity, ball_r = "#67e8f9", 2.6, 0.35, 5
+            color, width, opacity, ball_r = "#14203c", 2.6, 0.30, 5
         else:
-            color, width, opacity, ball_r = "#67e8f9", 2.2, 0.22, 4
+            color, width, opacity, ball_r = "#14203c", 2.2, 0.18, 4
         trajectory_svg_parts.append(
             f'<path d="{path_d}" fill="none" stroke="{color}" stroke-width="{width}" '
             f'stroke-linecap="round" opacity="{opacity}" />'
@@ -585,7 +585,7 @@ def _render_strike_zone_board(
         color = _zone_color(norm)
         is_best = cell == highlight_cell
         glow = 'filter="url(#zoneGlow)"' if is_best else ""
-        border = "#4ade80" if is_best else "rgba(226,232,240,0.35)"
+        border = "#1f8a4c" if is_best else "rgba(20,32,60,0.18)"
         border_w = 3.5 if is_best else 1.2
         cells_svg.append(f"""
         <rect x="{x+3}" y="{y+3}" width="{CELL-6}" height="{CELL-6}" rx="12" fill="{color}" fill-opacity="0.55"
@@ -593,8 +593,8 @@ def _render_strike_zone_board(
         if is_best:
             cx_ball, cy_ball = x + CELL / 2, y + CELL / 2
             cells_svg.append(f"""
-            <circle cx="{cx_ball}" cy="{cy_ball}" r="30" fill="#fde68a" opacity="0.18" />
-            <circle cx="{cx_ball}" cy="{cy_ball}" r="13" fill="#fffbeb" stroke="#4ade80" stroke-width="1.6" />""")
+            <circle cx="{cx_ball}" cy="{cy_ball}" r="30" fill="#1f8a4c" opacity="0.14" />
+            <circle cx="{cx_ball}" cy="{cy_ball}" r="13" fill="#ffffff" stroke="#1f8a4c" stroke-width="1.8" />""")
         cells_svg.append(f"""
         <text x="{x + CELL/2}" y="{y + CELL/2 + 10}" text-anchor="middle" font-size="32" font-weight="800"
               fill="#f8fafc" style="paint-order: stroke; stroke: #05070c; stroke-width: 3.5px;">{val:.0%}</text>""")
@@ -605,7 +605,7 @@ def _render_strike_zone_board(
         (GRID_LEFT - 30, GRID_TOP + 1.5 * CELL), (GRID_LEFT + 3 * CELL + 30, GRID_TOP + 1.5 * CELL),
     ]
     border_svg = "".join(
-        f'<text x="{bx}" y="{by}" text-anchor="middle" font-size="13" fill="#64748b">{out_val:.0%}</text>'
+        f'<text x="{bx}" y="{by}" text-anchor="middle" font-size="13" fill="#6b6555">{out_val:.0%}</text>'
         for bx, by in border_labels
     )
 
@@ -621,7 +621,7 @@ def _render_strike_zone_board(
     plate_svg = f"""
     <polygon points="{grid_cx-42},{grid_bottom_y+18} {grid_cx+42},{grid_bottom_y+18} {grid_cx+52},{grid_bottom_y+40}
                      {grid_cx},{grid_bottom_y+58} {grid_cx-52},{grid_bottom_y+40}"
-             fill="#e2e8f0" stroke="#22d3ee" stroke-width="1.5" />"""
+             fill="#ffffff" stroke="#14203c" stroke-width="1.5" />"""
     mound_svg = ""
     if view_mode == "pitcher":
         mound_svg = f"""
@@ -656,7 +656,7 @@ def _render_strike_zone_board(
         {silhouette}
         {trajectory_svg}
         <rect x="{GRID_LEFT}" y="{GRID_TOP}" width="{3*CELL}" height="{3*CELL}" rx="16" fill="none"
-              stroke="#e2e8f0" stroke-width="2.2" />
+              stroke="#14203c" stroke-width="2.2" />
         {"".join(cells_svg)}
         {border_svg}
       </svg>
