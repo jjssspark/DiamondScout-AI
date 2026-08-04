@@ -38,3 +38,6 @@ docs/*.pdf
 
 # Gradio 자동 생성 캐시
 .gradio/
+
+# Superpowers 브레인스토밍 컴패니언 (로컬 목업 세션)
+.superpowers/
