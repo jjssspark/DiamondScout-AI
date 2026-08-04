@@ -1380,24 +1380,29 @@ CUSTOM_CSS = """
     border: 1px solid #d2e2ba !important; border-radius: 20px !important;
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.6) !important;
 }
-.ds-diamond { position: relative !important; width: 240px; height: 200px; margin: 0 auto; overflow: visible !important; }
+.ds-diamond { position: relative !important; width: 280px; height: 280px; margin: 0 auto; overflow: visible !important; }
 .ds-diamond::before {
-    content: ""; position: absolute; top: 50%; left: 50%; width: 148px; height: 148px; z-index: 0;
+    content: ""; position: absolute; top: 50%; left: 50%; width: 150px; height: 150px; z-index: 0;
     background: linear-gradient(135deg, #dcb888 0%, #c89f6c 55%, #bb9260 100%);
     border: 3px solid #a97f4e; border-radius: 8px; transform: translate(-50%, -50%) rotate(45deg);
     box-shadow: inset 0 0 22px rgba(70,45,15,0.18);
 }
 .ds-diamond::after {
-    content: "HOME"; position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%); z-index: 1;
+    content: "HOME"; position: absolute; top: 256px; left: 50%; transform: translateX(-50%); z-index: 1;
     font-family: 'Share Tech Mono', monospace; font-size: 10px; color: #7c8a63; letter-spacing: 0.08em;
 }
+/* Gradio가 절대배치 자식들을 감싸는 .form 래퍼의 auto-height가 거의 0으로 붕괴되면서
+   overflow:hidden(기본값)에 베이스가 잘려 보이는 문제 — 명시적으로 visible 처리 */
+.ds-diamond .form { overflow: visible !important; height: auto !important; }
 .ds-base-card {
     position: absolute !important; width: 96px !important; background: transparent !important;
     border: none !important; padding: 0 !important; box-shadow: none !important; z-index: 2;
+    overflow: visible !important; height: auto !important; transform: translate(-50%, -50%);
 }
-.ds-base-card.ds-base-2b { top: 44px; left: 50%; transform: translateX(-50%); }
-.ds-base-card.ds-base-3b { bottom: 34px; left: 0; }
-.ds-base-card.ds-base-1b { bottom: 34px; right: 0; }
+/* 2루=인필드 상단 꼭짓점 / 3루=좌측 꼭짓점 / 1루=우측 꼭짓점 (인필드 다이아몬드와 동일 중심·반지름 기준) */
+.ds-base-card.ds-base-2b { top: 12.1%; left: 50%; }
+.ds-base-card.ds-base-3b { top: 50%; left: 12.1%; }
+.ds-base-card.ds-base-1b { top: 50%; left: 87.9%; }
 .ds-base-card label {
     display: flex !important; flex-direction: column-reverse !important; align-items: center !important; gap: 8px;
     cursor: pointer;
