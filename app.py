@@ -1720,17 +1720,19 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 p_hand_output = gr.Markdown()
                 p_top3_output = gr.HTML()
 
-                gr.Markdown("#### 🎯 추천 구종")
-                p_recommend_card_output = gr.HTML()
-
-                gr.Markdown("#### 🧑‍💼 상대 타자 약점")
-                p_batter_weakness_output = gr.HTML()
-
-                gr.Markdown("#### ⚠️ 위험도 카드")
-                p_risk_html_output = gr.HTML(label="위험도 요약")
-
-                gr.Markdown("#### 🌐 STRIKE ZONE BOARD")
-                p_hotcold_plot = gr.HTML()
+                with gr.Row(elem_classes=["ds-bento"]):
+                    with gr.Column():
+                        gr.Markdown("#### 🎯 추천 구종")
+                        p_recommend_card_output = gr.HTML()
+                    with gr.Column():
+                        gr.Markdown("#### 🧑‍💼 상대 타자 약점")
+                        p_batter_weakness_output = gr.HTML()
+                    with gr.Column():
+                        gr.Markdown("#### ⚠️ 위험도 카드")
+                        p_risk_html_output = gr.HTML(label="위험도 요약")
+                    with gr.Column(elem_classes=["ds-bento-wide"]):
+                        gr.Markdown("#### 🌐 STRIKE ZONE BOARD")
+                        p_hotcold_plot = gr.HTML()
 
                 gr.Markdown("#### 📄 전략 리포트")
                 p_report_output = gr.Markdown()
@@ -1864,17 +1866,19 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 b_hand_output = gr.Markdown()
                 b_top3_output = gr.HTML()
 
-                gr.Markdown("#### 🎯 노릴 코스 / 대응 전략")
-                b_recommend_card_output = gr.HTML()
-
-                gr.Markdown("#### 🧑‍💼 상대 투수 패턴")
-                b_pitcher_pattern_output = gr.HTML()
-
-                gr.Markdown("#### ⚠️ 위험도 카드")
-                b_risk_html_output = gr.HTML(label="위험도 요약")
-
-                gr.Markdown("#### 🌐 STRIKE ZONE BOARD")
-                b_hotcold_plot = gr.HTML()
+                with gr.Row(elem_classes=["ds-bento"]):
+                    with gr.Column():
+                        gr.Markdown("#### 🎯 노릴 코스 / 대응 전략")
+                        b_recommend_card_output = gr.HTML()
+                    with gr.Column():
+                        gr.Markdown("#### 🧑‍💼 상대 투수 패턴")
+                        b_pitcher_pattern_output = gr.HTML()
+                    with gr.Column():
+                        gr.Markdown("#### ⚠️ 위험도 카드")
+                        b_risk_html_output = gr.HTML(label="위험도 요약")
+                    with gr.Column(elem_classes=["ds-bento-wide"]):
+                        gr.Markdown("#### 🌐 STRIKE ZONE BOARD")
+                        b_hotcold_plot = gr.HTML()
 
                 gr.Markdown("#### 📄 전략 리포트")
                 b_report_output = gr.Markdown()
