@@ -1101,10 +1101,10 @@ def run_pitcher_analysis(
     recommended_text = f"{pitch_label_kr(pr['recommended_pitch'])} ({pr['recommended_pitch']})"
     avoid_text = f"{pitch_label_kr(pr['avoid_pitch'])} ({pr['avoid_pitch']})" if pr["avoid_pitch"] else "-"
     recommend_card_html = render_hero_recommend_card(
-        "⚾ 추천 구종", recommended_text, "예측 확률·구사 성향·매치업·위험도를 종합한 1순위 선택",
-        "🚫 피해야 할 구종", avoid_text, accent="#1f8a4c",
+        "추천 구종", recommended_text, "예측 확률·구사 성향·매치업·위험도를 종합한 1순위 선택",
+        "피해야 할 구종", avoid_text, accent="#1f8a4c",
     )
-    batter_weakness_html = render_insight_card("🧑‍💼 상대 타자 약점 요약", pr["batter_weakness"]["summary"])
+    batter_weakness_html = render_insight_card("상대 타자 약점 요약", pr["batter_weakness"]["summary"])
     # Top-3 각 구종이 실제로 가장 많이 들어간 zone_cell을 궤적 목적지로 사용(구종별 궤적 표시).
     pitcher_trajectories = [
         {"pitch_label": item["pitch_label"], "rank": i + 1,
@@ -1178,10 +1178,10 @@ def run_batter_analysis(
 
     br = result["batter_mode_result"]
     recommend_card_html = render_hero_recommend_card(
-        "🎯 노릴 코스", br["target_zone"], "예상 투구 확률·상대 패턴·전략 코멘트를 종합한 최우선 코스",
-        "🧭 대응 전략", br["counter_strategy"], accent="#1f8a4c",
+        "노릴 코스", br["target_zone"], "예상 투구 확률·상대 패턴·전략 코멘트를 종합한 최우선 코스",
+        "대응 전략", br["counter_strategy"], accent="#1f8a4c",
     )
-    pitcher_pattern_html = render_insight_card("🧑‍💼 상대 투수 패턴 요약", br["pitcher_pattern"]["summary"])
+    pitcher_pattern_html = render_insight_card("상대 투수 패턴 요약", br["pitcher_pattern"]["summary"])
     batter_trajectories = [
         {"pitch_label": loc["pitch_label"], "rank": i + 1, "cell": loc["zone_cell"]}
         for i, loc in enumerate(br["expected_locations"])
@@ -1302,7 +1302,7 @@ CUSTOM_CSS = """
     background: #f4f2ec !important;
     max-width: 1320px !important;
     margin: 0 auto !important;
-    font-size: 15.5px !important;
+    font-size: 17px !important;
     color-scheme: light;
     /* Gradio 6 내부 컴포넌트(슬라이더/드롭다운 등)가 라이트 팔레트를 그대로 쓰도록
        변수 레벨에서 고정한다. .ds-* 클래스만으로는 내부 컴포넌트가 예전 다크 변수값을
@@ -1338,10 +1338,10 @@ CUSTOM_CSS = """
     background: #f7f5ef !important;
     color: #14203c !important;
 }
-.gradio-container h1 { color: #14203c; font-size: 30px !important; margin-bottom: 6px !important; }
-.gradio-container h2 { color: #14203c; font-size: 22px !important; }
+.gradio-container h1 { color: #14203c; font-size: 34px !important; margin-bottom: 6px !important; }
+.gradio-container h2 { color: #14203c; font-size: 25px !important; }
 .gradio-container h3, .gradio-container h4 {
-    color: #14203c; font-size: 18px !important; margin-top: 26px !important; margin-bottom: 12px !important;
+    color: #14203c; font-size: 21px !important; margin-top: 26px !important; margin-bottom: 12px !important;
 }
 /* 입력 영역 = 경기 설정 패널 / 결과 영역 = 코칭 보드 / Q&A 패널 공통 카드 스타일 */
 .ds-panel, .ds-board, .ds-qa-panel {
@@ -1353,7 +1353,7 @@ CUSTOM_CSS = """
     box-shadow: 0 4px 14px rgba(20,32,60,0.06);
 }
 .ds-panel-title, .ds-board-title, .ds-qa-title {
-    font-weight: 800; letter-spacing: 0.03em; font-size: 17px; padding: 2px 0 14px 12px;
+    font-weight: 800; letter-spacing: 0.03em; font-size: 20px; padding: 2px 0 14px 12px;
     margin: 0 !important; border-left: 4px solid;
 }
 .ds-panel-title { color: #c8102e; border-color: #c8102e; }
@@ -1374,12 +1374,12 @@ CUSTOM_CSS = """
     background: #f7f5ef !important; border: 1px solid #e6e1d3 !important; border-radius: 10px !important;
     padding: 4px 2px !important;
 }
-.ds-base-card label { font-size: 15.5px !important; }
+.ds-base-card label { font-size: 17px !important; }
 .ds-base-card label::before { content: "\\25C6"; color: #b8ae94; margin-right: 6px; }
 .ds-base-card:has(input:checked) { border-color: #c8102e !important; box-shadow: 0 0 0 2px rgba(200,16,46,0.15); }
 .ds-base-card:has(input:checked) label::before { color: #c8102e; }
 /* 버튼: Primary(레드)/Ghost(아웃라인) 2종만 사용 */
-.gradio-container button { font-size: 15.5px !important; border-radius: 8px !important; }
+.gradio-container button { font-size: 16.5px !important; border-radius: 8px !important; }
 .ds-btn-analyze {
     background: #c8102e !important; color: #ffffff !important; border: none !important;
     font-weight: 800 !important; box-shadow: 0 4px 10px rgba(200,16,46,0.28) !important;
@@ -1413,7 +1413,7 @@ CUSTOM_CSS = """
    흰 배경이 그대로 보이게 한다. (Gradio 6.19.0 기준, 버전 업그레이드 시 DOM 구조 변경 여부 재확인 필요) */
 .styler:has(> .ds-btn-pdf) { background: transparent !important; }
 /* 입력 컴포넌트 라벨/텍스트 가독성 */
-.gradio-container label span, .gradio-container .label-wrap span { font-size: 15px !important; }
+.gradio-container label span, .gradio-container .label-wrap span { font-size: 16.5px !important; }
 /* STRIKE ZONE BOARD 카드 (내부 SVG 히트맵 자체 색상은 별도 보정) */
 .ds-zone-card {
     background: #ffffff;
@@ -1476,30 +1476,46 @@ CUSTOM_CSS = """
 }
 .ds-step-next { border-bottom-color: #ddd8ca !important; color: #b8ae94 !important; }
 
-/* ===== 현재 매치업 요약 패널 (데스크톱 전용) ===== */
+/* ===== 현재 매치업 요약 패널 (데스크톱 전용) — 이름만 크게 보여준다 ===== */
 .ds-matchup-panel {
     display: none;
     background: #14203c !important; color: #ffffff !important;
-    border-radius: 16px !important; padding: 22px !important;
+    border-radius: 16px !important; padding: 26px !important;
+    flex-direction: column; justify-content: center; align-items: center; text-align: center;
 }
 .ds-matchup-panel .ds-mp-title {
-    font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: #b9c3dd; text-transform: uppercase;
-    border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 10px; margin-bottom: 10px;
+    font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #b9c3dd; text-transform: uppercase;
+    border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 12px; margin-bottom: 16px; width: 100%;
 }
-.ds-matchup-panel .ds-mp-row {
-    display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 7px 0;
-    border-bottom: 1px dashed rgba(255,255,255,0.12);
+.ds-matchup-panel .ds-mp-role {
+    font-size: 13px; font-weight: 700; letter-spacing: 0.06em; color: #b9c3dd; text-transform: uppercase; margin-top: 16px;
 }
-.ds-matchup-panel .ds-mp-row span:first-child { color: #b9c3dd; }
-.ds-matchup-panel .ds-mp-row span:last-child { font-weight: 700; text-align: right; color: #ffffff !important; }
+.ds-matchup-panel .ds-mp-name { font-size: 25px; font-weight: 800; color: #ffffff; margin-top: 4px; }
+.ds-matchup-panel .ds-mp-vs {
+    color: #c8102e; font-weight: 800; font-size: 15px; letter-spacing: 0.1em; margin: 18px 0 2px;
+}
 
 /* ===== 결과 화면 벤토 그리드 ===== */
 .ds-bento { display: grid !important; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 0; }
 .ds-bento-wide { grid-column: 1 / -1 !important; }
 
+/* ===== 카운트/이닝 시각화 스코어보드 (STEP 2, 원시 입력값을 읽기 쉽게 재표시) ===== */
+.ds-count-board {
+    display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+    background: #14203c; border-radius: 12px; padding: 14px 18px; margin: 8px 0 16px 0;
+}
+.ds-cb-item { display: flex; align-items: center; gap: 6px; }
+.ds-cb-label { font-family: 'Share Tech Mono', monospace; color: #b9c3dd; font-weight: 700; font-size: 14px; margin-right: 2px; }
+.ds-cb-dot { width: 16px; height: 16px; border-radius: 50%; background: rgba(255,255,255,0.15); display: inline-block; }
+.ds-cb-dot.on { background: var(--c); }
+.ds-cb-inning {
+    margin-left: auto; font-family: 'Share Tech Mono', monospace; color: #ffffff; font-weight: 800; font-size: 17px;
+}
+
 /* ===== 반응형 브레이크포인트 ===== */
 @media (min-width: 1280px) {
-    .ds-matchup-panel { display: block; }
+    .ds-matchup-panel { display: flex; }
+    .ds-wizard-row { align-items: stretch !important; }
     .ds-bento { grid-template-columns: repeat(4, 1fr); }
 }
 @media (max-width: 639px) {
@@ -1586,24 +1602,57 @@ def render_analysis_status(done: bool) -> str:
     return f'<div class="ds-status ds-status-done">✅ 분석 완료 — 코칭 보드가 갱신되었습니다 · 마지막 분석 시간 {timestamp}</div>'
 
 
-def render_matchup_summary(pitcher_id, batter_id, balls, strikes, outs, inning, topbot) -> str:
-    """데스크톱(≥1280px) 2단 레이아웃 우측에 상시 노출되는 "현재 매치업" 요약 패널.
-    위저드 스텝을 넘나드는 동안에도 지금까지 입력한 값을 다시 스크롤하지 않고 확인할 수 있게 한다.
+def _render_matchup_panel(my_label: str, my_name: str, opponent_label: str, opponent_name: str) -> str:
+    """데스크톱(≥1280px) 2단 레이아웃 우측에 상시 노출되는 "현재 매치업" 패널.
+    누가 누구와 붙는지만 크게 보여주는 용도라 이름만 표시한다 — 카운트/이닝은
+    STEP 2의 시각화 스코어보드(render_count_scoreboard)에서 이미 보여주므로 중복하지 않는다.
     모바일/태블릿에서는 .ds-matchup-panel이 display:none이라 이 패널 자체가 안 보이므로,
-    좁은 화면에서는 기존과 동일하게 STEP 1로 돌아가야 매치업을 다시 확인할 수 있다.
+    좁은 화면에서는 STEP 1로 돌아가야 매치업을 다시 확인할 수 있다."""
+    return f"""
+    <div class="ds-mp-title">현재 매치업</div>
+    <div class="ds-mp-role">{my_label}</div>
+    <div class="ds-mp-name">{my_name}</div>
+    <div class="ds-mp-vs">VS</div>
+    <div class="ds-mp-role">{opponent_label}</div>
+    <div class="ds-mp-name">{opponent_name}</div>
+    """
 
-    pitcher_id/batter_id는 .change() 와이어링에서 gr.Dropdown(choices=(label, id) 튜플)이
+
+def render_pitcher_matchup_summary(pitcher_id, batter_id) -> str:
+    """pitcher_id/batter_id는 .change() 와이어링에서 gr.Dropdown(choices=(label, id) 튜플)이
     실제로 넘겨주는 id 값이므로, 표시용 이름으로 변환해서 렌더링한다."""
-    pitcher_label = scouting_service.get_pitcher_name(pitcher_id)
-    batter_label = get_batter_display(batter_id)
+    return _render_matchup_panel(
+        "내 투수", scouting_service.get_pitcher_name(pitcher_id),
+        "상대 타자", get_batter_display(batter_id),
+    )
+
+
+def render_batter_matchup_summary(batter_id, pitcher_id) -> str:
+    return _render_matchup_panel(
+        "내 타자", get_batter_display(batter_id),
+        "상대 투수", scouting_service.get_pitcher_name(pitcher_id),
+    )
+
+
+def render_count_scoreboard(balls, strikes, outs, inning, topbot) -> str:
+    """STEP 2의 슬라이더/숫자 입력값을 게임 스코어보드처럼 한눈에 보이게 재표시한다.
+    원시 입력 컴포넌트(gr.Slider 등)는 그대로 두고, 그 값을 읽어 시각화만 추가하는 방식이라
+    실제 분석에 쓰이는 값(=원시 입력값)과 화면에 보이는 값이 항상 일치한다."""
+    def _dots(n: int, total: int, color: str) -> str:
+        n = int(n)
+        return "".join(
+            f'<span class="ds-cb-dot{" on" if i < n else ""}" style="--c:{color}"></span>'
+            for i in range(total)
+        )
     inning_display = inning if inning is not None else "-"
     topbot_short = "초" if "초" in topbot else "말"
     return f"""
-    <div class="ds-mp-title">현재 매치업</div>
-    <div class="ds-mp-row"><span>투수</span><span>{pitcher_label}</span></div>
-    <div class="ds-mp-row"><span>타자</span><span>{batter_label}</span></div>
-    <div class="ds-mp-row"><span>카운트</span><span>{balls}B - {strikes}S, {outs}아웃</span></div>
-    <div class="ds-mp-row"><span>이닝</span><span>{inning_display}회 {topbot_short}</span></div>
+    <div class="ds-count-board">
+      <div class="ds-cb-item"><span class="ds-cb-label">B</span>{_dots(balls, 3, '#1f8a4c')}</div>
+      <div class="ds-cb-item"><span class="ds-cb-label">S</span>{_dots(strikes, 2, '#b8860b')}</div>
+      <div class="ds-cb-item"><span class="ds-cb-label">O</span>{_dots(outs, 2, '#c8102e')}</div>
+      <div class="ds-cb-inning">{inning_display}회 {topbot_short}</div>
+    </div>
     """
 
 
@@ -1611,7 +1660,7 @@ def render_matchup_summary(pitcher_id, batter_id, balls, strikes, outs, inning, 
 # Gradio 레이아웃
 # ============================================================================
 
-WIZARD_STEP_LABELS = ["1️⃣ 매치업", "2️⃣ 상황판", "3️⃣ 베이스&스코어", "4️⃣ 작전지시"]
+WIZARD_STEP_LABELS = ["STEP 1 매치업", "STEP 2 상황판", "STEP 3 베이스&스코어", "STEP 4 작전지시"]
 
 
 def _step_dot_classes(step: int) -> list[list[str]]:
@@ -1639,16 +1688,25 @@ def _goto_step_1():
     return (gr.Tabs(selected=0), 1, *_step_dot_updates(1))
 
 
-def _goto_step_2():
-    return (gr.Tabs(selected=1), 2, *_step_dot_updates(2))
+def _chip_goto(target: int, current_step) -> tuple:
+    """진행 트랙 칩은 이미 지나왔거나 현재 스텝으로는 자유롭게 이동할 수 있지만, 아직
+    도달하지 않은(예정) 스텝으로는 건너뛸 수 없다 — 내용을 채우지 않고 앞 스텝으로
+    건너뛰는 것을 막기 위해 '다음' 버튼을 눌러야만 전진하도록 강제한다."""
+    current = int(current_step)
+    step = target if target <= current else current
+    return (gr.Tabs(selected=step - 1), step, *_step_dot_updates(step))
 
 
-def _goto_step_3():
-    return (gr.Tabs(selected=2), 3, *_step_dot_updates(3))
+def _goto_step_2(current_step):
+    return _chip_goto(2, current_step)
 
 
-def _goto_step_4():
-    return (gr.Tabs(selected=3), 4, *_step_dot_updates(4))
+def _goto_step_3(current_step):
+    return _chip_goto(3, current_step)
+
+
+def _goto_step_4(current_step):
+    return _chip_goto(4, current_step)
 
 
 def _step_prev(current_step: int):
@@ -1684,12 +1742,12 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 p_chip3 = gr.Button(WIZARD_STEP_LABELS[2], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
                 p_chip4 = gr.Button(WIZARD_STEP_LABELS[3], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
 
-            with gr.Row():
+            with gr.Row(elem_classes=["ds-wizard-row"]):
                 with gr.Column(scale=3):
                     with gr.Tabs(elem_classes=["ds-wizard-tabs"]) as p_wizard_tabs:
                         with gr.Tab("매치업", id=0):
                             with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">🕹️ STEP 1 · 매치업</div>')
+                                gr.HTML('<div class="ds-panel-title">STEP 1 · 매치업</div>')
                                 with gr.Row():
                                     p_pitcher_id_input = gr.Dropdown(choices=DEMO_PITCHER_CHOICES, value=DEFAULT_PITCHER_ID, label="내 투수 ID")
                                     p_batter_id_input = gr.Dropdown(choices=DEMO_BATTER_CHOICES, value=DEFAULT_BATTER_ID, label="상대 타자 ID")
@@ -1697,8 +1755,8 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
 
                         with gr.Tab("상황판", id=1):
                             with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">🕹️ STEP 2 · 상황판</div>')
-                                gr.Markdown("#### ⚾ 카운트 스코어보드")
+                                gr.HTML('<div class="ds-panel-title">STEP 2 · 상황판</div>')
+                                gr.Markdown("#### 카운트 스코어보드")
                                 with gr.Row(elem_classes=["ds-scoreboard"]):
                                     p_balls_input = gr.Slider(0, 3, value=0, step=1, label="볼")
                                     p_strikes_input = gr.Slider(0, 2, value=0, step=1, label="스트라이크")
@@ -1706,16 +1764,17 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                                 with gr.Row():
                                     p_inning_input = gr.Number(value=1, precision=0, label="이닝")
                                     p_topbot_input = gr.Radio(["초(Top)", "말(Bot)"], value="초(Top)", label="이닝 초/말")
+                                p_count_board_output = gr.HTML(render_count_scoreboard(0, 0, 2, 1, "초(Top)"))
 
                         with gr.Tab("베이스 & 스코어", id=2):
                             with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">🕹️ STEP 3 · 베이스 & 스코어</div>')
-                                gr.Markdown("#### 🔶 주자 상황")
+                                gr.HTML('<div class="ds-panel-title">STEP 3 · 베이스 & 스코어</div>')
+                                gr.Markdown("#### 주자 상황")
                                 with gr.Row():
                                     p_on1b_input = gr.Checkbox(value=False, label="1루 주자", elem_classes=["ds-base-card"])
                                     p_on2b_input = gr.Checkbox(value=False, label="2루 주자", elem_classes=["ds-base-card"])
                                     p_on3b_input = gr.Checkbox(value=False, label="3루 주자", elem_classes=["ds-base-card"])
-                                gr.Markdown("#### ⚾ 스코어")
+                                gr.Markdown("#### 스코어")
                                 with gr.Row():
                                     p_our_score_input = gr.Number(value=0, precision=0, label="우리팀 점수")
                                     gr.Markdown("<div style='text-align:center; padding-top:28px; font-weight:800;'>:</div>")
@@ -1723,49 +1782,49 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
 
                         with gr.Tab("작전 지시", id=3):
                             with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">🕹️ STEP 4 · 작전 지시</div>')
-                                p_comment_input = gr.Textbox(value=DEFAULT_COMMENT_PITCHER, label="🎙️ 코치에게 전달할 전략 의도", lines=2)
+                                gr.HTML('<div class="ds-panel-title">STEP 4 · 작전 지시</div>')
+                                p_comment_input = gr.Textbox(value=DEFAULT_COMMENT_PITCHER, label="코치에게 전달할 전략 의도", lines=2)
 
                 with gr.Column(scale=2, elem_classes=["ds-matchup-panel"]):
                     p_matchup_output = gr.HTML(
-                        render_matchup_summary(DEFAULT_PITCHER_ID, DEFAULT_BATTER_ID, 0, 0, 2, 1, "초(Top)")
+                        render_pitcher_matchup_summary(DEFAULT_PITCHER_ID, DEFAULT_BATTER_ID)
                     )
 
             # 다음/이전/분석 버튼은 스텝 카드 밖, 항상 마운트된 컨트롤바에 둔다.
             with gr.Row():
                 p_prev_btn = gr.Button("⬅ 이전", elem_classes=["ds-btn-prev"])
                 p_next_btn = gr.Button("다음 ➡", elem_classes=["ds-btn-next"])
-                p_analyze_btn = gr.Button("⚾ 분석 실행", variant="primary", elem_classes=["ds-btn-analyze"])
+                p_analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn-analyze"])
 
-            p_reset_btn = gr.Button("🔄 다시 분석", elem_classes=["ds-btn-reset"])
+            p_reset_btn = gr.Button("다시 분석", elem_classes=["ds-btn-reset"])
             p_status_output = gr.HTML()
 
-            with gr.Group(elem_classes=["ds-board"]):
-                gr.HTML('<div class="ds-board-title">🧠 코칭 보드</div>')
+            with gr.Group(elem_classes=["ds-board"], visible=False) as p_board_group:
+                gr.HTML('<div class="ds-board-title">코칭 보드</div>')
                 p_hand_output = gr.Markdown()
                 p_top3_output = gr.HTML()
 
                 with gr.Row(elem_classes=["ds-bento"]):
                     with gr.Column():
-                        gr.Markdown("#### 🎯 추천 구종")
+                        gr.Markdown("#### 추천 구종")
                         p_recommend_card_output = gr.HTML()
                     with gr.Column():
-                        gr.Markdown("#### 🧑‍💼 상대 타자 약점")
+                        gr.Markdown("#### 상대 타자 약점")
                         p_batter_weakness_output = gr.HTML()
                     with gr.Column():
-                        gr.Markdown("#### ⚠️ 위험도 카드")
+                        gr.Markdown("#### 위험도 카드")
                         p_risk_html_output = gr.HTML(label="위험도 요약")
                     with gr.Column(elem_classes=["ds-bento-wide"]):
-                        gr.Markdown("#### 🌐 STRIKE ZONE BOARD")
+                        gr.Markdown("#### STRIKE ZONE BOARD")
                         p_hotcold_plot = gr.HTML()
 
-                gr.Markdown("#### 📄 전략 리포트")
+                gr.Markdown("#### 전략 리포트")
                 p_report_output = gr.Markdown()
-                p_pdf_btn = gr.Button("📄 PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
+                p_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
                 p_pdf_file_output = gr.File(label="다운로드 파일")
 
             with gr.Group(elem_classes=["ds-qa-panel"]):
-                gr.HTML('<div class="ds-qa-title">💬 Instant Scout Q&A</div>')
+                gr.HTML('<div class="ds-qa-title">Instant Scout Q&A</div>')
                 with gr.Row():
                     p_example_btns = [gr.Button(q, size="sm") for q in EXAMPLE_QUESTIONS]
                 p_chatbot = gr.Chatbot(label="투수 모드 Q&A", height=300)
@@ -1788,22 +1847,24 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                     p_hand_output, p_top3_output, p_risk_html_output, p_recommend_card_output,
                     p_batter_weakness_output, p_hotcold_plot, p_report_output, p_result_state, p_status_output,
                 ],
+            ).then(
+                fn=lambda: gr.Group(visible=True), outputs=[p_board_group],
             )
             p_pdf_btn.click(fn=generate_pdf, inputs=[p_result_state], outputs=[p_pdf_file_output])
 
             p_wizard_outputs = [p_wizard_tabs, p_step_state, p_chip1, p_chip2, p_chip3, p_chip4]
-            p_matchup_inputs = [
-                p_pitcher_id_input, p_batter_id_input, p_balls_input, p_strikes_input,
-                p_outs_input, p_inning_input, p_topbot_input,
-            ]
+            p_matchup_inputs = [p_pitcher_id_input, p_batter_id_input]
             for comp in p_matchup_inputs:
-                comp.change(fn=render_matchup_summary, inputs=p_matchup_inputs, outputs=[p_matchup_output])
+                comp.change(fn=render_pitcher_matchup_summary, inputs=p_matchup_inputs, outputs=[p_matchup_output])
+            p_count_inputs = [p_balls_input, p_strikes_input, p_outs_input, p_inning_input, p_topbot_input]
+            for comp in p_count_inputs:
+                comp.change(fn=render_count_scoreboard, inputs=p_count_inputs, outputs=[p_count_board_output])
             p_prev_btn.click(fn=_step_prev, inputs=[p_step_state], outputs=p_wizard_outputs)
             p_next_btn.click(fn=_step_next, inputs=[p_step_state], outputs=p_wizard_outputs)
             p_chip1.click(fn=_goto_step_1, outputs=p_wizard_outputs)
-            p_chip2.click(fn=_goto_step_2, outputs=p_wizard_outputs)
-            p_chip3.click(fn=_goto_step_3, outputs=p_wizard_outputs)
-            p_chip4.click(fn=_goto_step_4, outputs=p_wizard_outputs)
+            p_chip2.click(fn=_goto_step_2, inputs=[p_step_state], outputs=p_wizard_outputs)
+            p_chip3.click(fn=_goto_step_3, inputs=[p_step_state], outputs=p_wizard_outputs)
+            p_chip4.click(fn=_goto_step_4, inputs=[p_step_state], outputs=p_wizard_outputs)
             p_reset_btn.click(fn=_goto_step_1, outputs=p_wizard_outputs)
 
             p_chat_send_btn.click(
@@ -1831,12 +1892,12 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 b_chip3 = gr.Button(WIZARD_STEP_LABELS[2], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
                 b_chip4 = gr.Button(WIZARD_STEP_LABELS[3], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
 
-            with gr.Row():
+            with gr.Row(elem_classes=["ds-wizard-row"]):
                 with gr.Column(scale=3):
                     with gr.Tabs(elem_classes=["ds-wizard-tabs"]) as b_wizard_tabs:
                         with gr.Tab("매치업", id=0):
                             with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">🕹️ STEP 1 · 매치업</div>')
+                                gr.HTML('<div class="ds-panel-title">STEP 1 · 매치업</div>')
                                 with gr.Row():
                                     b_batter_id_input = gr.Dropdown(choices=DEMO_BATTER_CHOICES, value=DEFAULT_BATTER_ID, label="내 타자 ID")
                                     b_pitcher_id_input = gr.Dropdown(choices=DEMO_PITCHER_CHOICES, value=DEFAULT_PITCHER_ID, label="상대 투수 ID")
@@ -1844,8 +1905,8 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
 
                         with gr.Tab("상황판", id=1):
                             with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">🕹️ STEP 2 · 상황판</div>')
-                                gr.Markdown("#### ⚾ 카운트 스코어보드")
+                                gr.HTML('<div class="ds-panel-title">STEP 2 · 상황판</div>')
+                                gr.Markdown("#### 카운트 스코어보드")
                                 with gr.Row(elem_classes=["ds-scoreboard"]):
                                     b_balls_input = gr.Slider(0, 3, value=0, step=1, label="볼")
                                     b_strikes_input = gr.Slider(0, 2, value=0, step=1, label="스트라이크")
@@ -1853,16 +1914,17 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                                 with gr.Row():
                                     b_inning_input = gr.Number(value=1, precision=0, label="이닝")
                                     b_topbot_input = gr.Radio(["초(Top)", "말(Bot)"], value="초(Top)", label="이닝 초/말")
+                                b_count_board_output = gr.HTML(render_count_scoreboard(0, 0, 2, 1, "초(Top)"))
 
                         with gr.Tab("베이스 & 스코어", id=2):
                             with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">🕹️ STEP 3 · 베이스 & 스코어</div>')
-                                gr.Markdown("#### 🔶 주자 상황")
+                                gr.HTML('<div class="ds-panel-title">STEP 3 · 베이스 & 스코어</div>')
+                                gr.Markdown("#### 주자 상황")
                                 with gr.Row():
                                     b_on1b_input = gr.Checkbox(value=False, label="1루 주자", elem_classes=["ds-base-card"])
                                     b_on2b_input = gr.Checkbox(value=False, label="2루 주자", elem_classes=["ds-base-card"])
                                     b_on3b_input = gr.Checkbox(value=False, label="3루 주자", elem_classes=["ds-base-card"])
-                                gr.Markdown("#### ⚾ 스코어")
+                                gr.Markdown("#### 스코어")
                                 with gr.Row():
                                     b_our_score_input = gr.Number(value=0, precision=0, label="우리팀 점수")
                                     gr.Markdown("<div style='text-align:center; padding-top:28px; font-weight:800;'>:</div>")
@@ -1870,48 +1932,48 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
 
                         with gr.Tab("작전 지시", id=3):
                             with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">🕹️ STEP 4 · 작전 지시</div>')
-                                b_comment_input = gr.Textbox(value=DEFAULT_COMMENT_BATTER, label="🎙️ 코치에게 전달할 전략 의도", lines=2)
+                                gr.HTML('<div class="ds-panel-title">STEP 4 · 작전 지시</div>')
+                                b_comment_input = gr.Textbox(value=DEFAULT_COMMENT_BATTER, label="코치에게 전달할 전략 의도", lines=2)
 
                 with gr.Column(scale=2, elem_classes=["ds-matchup-panel"]):
                     b_matchup_output = gr.HTML(
-                        render_matchup_summary(DEFAULT_PITCHER_ID, DEFAULT_BATTER_ID, 0, 0, 2, 1, "초(Top)")
+                        render_batter_matchup_summary(DEFAULT_BATTER_ID, DEFAULT_PITCHER_ID)
                     )
 
             with gr.Row():
                 b_prev_btn = gr.Button("⬅ 이전", elem_classes=["ds-btn-prev"])
                 b_next_btn = gr.Button("다음 ➡", elem_classes=["ds-btn-next"])
-                b_analyze_btn = gr.Button("🏏 분석 실행", variant="primary", elem_classes=["ds-btn-analyze"])
+                b_analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn-analyze"])
 
-            b_reset_btn = gr.Button("🔄 다시 분석", elem_classes=["ds-btn-reset"])
+            b_reset_btn = gr.Button("다시 분석", elem_classes=["ds-btn-reset"])
             b_status_output = gr.HTML()
 
-            with gr.Group(elem_classes=["ds-board"]):
-                gr.HTML('<div class="ds-board-title">🧠 코칭 보드</div>')
+            with gr.Group(elem_classes=["ds-board"], visible=False) as b_board_group:
+                gr.HTML('<div class="ds-board-title">코칭 보드</div>')
                 b_hand_output = gr.Markdown()
                 b_top3_output = gr.HTML()
 
                 with gr.Row(elem_classes=["ds-bento"]):
                     with gr.Column():
-                        gr.Markdown("#### 🎯 노릴 코스 / 대응 전략")
+                        gr.Markdown("#### 노릴 코스 / 대응 전략")
                         b_recommend_card_output = gr.HTML()
                     with gr.Column():
-                        gr.Markdown("#### 🧑‍💼 상대 투수 패턴")
+                        gr.Markdown("#### 상대 투수 패턴")
                         b_pitcher_pattern_output = gr.HTML()
                     with gr.Column():
-                        gr.Markdown("#### ⚠️ 위험도 카드")
+                        gr.Markdown("#### 위험도 카드")
                         b_risk_html_output = gr.HTML(label="위험도 요약")
                     with gr.Column(elem_classes=["ds-bento-wide"]):
-                        gr.Markdown("#### 🌐 STRIKE ZONE BOARD")
+                        gr.Markdown("#### STRIKE ZONE BOARD")
                         b_hotcold_plot = gr.HTML()
 
-                gr.Markdown("#### 📄 전략 리포트")
+                gr.Markdown("#### 전략 리포트")
                 b_report_output = gr.Markdown()
-                b_pdf_btn = gr.Button("📄 PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
+                b_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
                 b_pdf_file_output = gr.File(label="다운로드 파일")
 
             with gr.Group(elem_classes=["ds-qa-panel"]):
-                gr.HTML('<div class="ds-qa-title">💬 Instant Scout Q&A</div>')
+                gr.HTML('<div class="ds-qa-title">Instant Scout Q&A</div>')
                 with gr.Row():
                     b_example_btns = [gr.Button(q, size="sm") for q in EXAMPLE_QUESTIONS]
                 b_chatbot = gr.Chatbot(label="타자 모드 Q&A", height=300)
@@ -1934,22 +1996,24 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                     b_hand_output, b_top3_output, b_risk_html_output, b_recommend_card_output,
                     b_pitcher_pattern_output, b_hotcold_plot, b_report_output, b_result_state, b_status_output,
                 ],
+            ).then(
+                fn=lambda: gr.Group(visible=True), outputs=[b_board_group],
             )
             b_pdf_btn.click(fn=generate_pdf, inputs=[b_result_state], outputs=[b_pdf_file_output])
 
             b_wizard_outputs = [b_wizard_tabs, b_step_state, b_chip1, b_chip2, b_chip3, b_chip4]
-            b_matchup_inputs = [
-                b_pitcher_id_input, b_batter_id_input, b_balls_input, b_strikes_input,
-                b_outs_input, b_inning_input, b_topbot_input,
-            ]
+            b_matchup_inputs = [b_batter_id_input, b_pitcher_id_input]
             for comp in b_matchup_inputs:
-                comp.change(fn=render_matchup_summary, inputs=b_matchup_inputs, outputs=[b_matchup_output])
+                comp.change(fn=render_batter_matchup_summary, inputs=b_matchup_inputs, outputs=[b_matchup_output])
+            b_count_inputs = [b_balls_input, b_strikes_input, b_outs_input, b_inning_input, b_topbot_input]
+            for comp in b_count_inputs:
+                comp.change(fn=render_count_scoreboard, inputs=b_count_inputs, outputs=[b_count_board_output])
             b_prev_btn.click(fn=_step_prev, inputs=[b_step_state], outputs=b_wizard_outputs)
             b_next_btn.click(fn=_step_next, inputs=[b_step_state], outputs=b_wizard_outputs)
             b_chip1.click(fn=_goto_step_1, outputs=b_wizard_outputs)
-            b_chip2.click(fn=_goto_step_2, outputs=b_wizard_outputs)
-            b_chip3.click(fn=_goto_step_3, outputs=b_wizard_outputs)
-            b_chip4.click(fn=_goto_step_4, outputs=b_wizard_outputs)
+            b_chip2.click(fn=_goto_step_2, inputs=[b_step_state], outputs=b_wizard_outputs)
+            b_chip3.click(fn=_goto_step_3, inputs=[b_step_state], outputs=b_wizard_outputs)
+            b_chip4.click(fn=_goto_step_4, inputs=[b_step_state], outputs=b_wizard_outputs)
             b_reset_btn.click(fn=_goto_step_1, outputs=b_wizard_outputs)
 
             b_chat_send_btn.click(
