@@ -1296,127 +1296,127 @@ CUSTOM_CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Teko:wght@500;600;700&family=Share+Tech+Mono&display=swap');
 
 :root {
-    color-scheme: dark;
+    color-scheme: light;
 }
 .gradio-container {
-    background: radial-gradient(circle at 50% -10%, #16233b 0%, #05070c 62%) !important;
-    max-width: 1180px !important;
+    background: #f4f2ec !important;
+    max-width: 1320px !important;
     margin: 0 auto !important;
     font-size: 15.5px !important;
-    color-scheme: dark;
-    /* Gradio 6 기본 라이트 테마 변수를 스타디움 다크 톤으로 강제 override.
-       .ds-* 클래스만으로는 슬라이더/드롭다운 등 내부 컴포넌트가 라이트로 남아
-       라이트/다크가 뒤섞여 보이던 문제의 근본 원인이라 변수 레벨에서 고정한다. */
-    --body-background-fill: #05070c !important;
-    --background-fill-primary: #0b1220 !important;
-    --background-fill-secondary: #111827 !important;
-    --border-color-primary: #1e293b !important;
-    --border-color-accent: #22d3ee !important;
-    --block-background-fill: #111827 !important;
-    --block-border-color: #1e293b !important;
-    --block-label-background-fill: #111827 !important;
-    --block-label-text-color: #94a3b8 !important;
-    --body-text-color: #e5e7eb !important;
-    --body-text-color-subdued: #94a3b8 !important;
-    --input-background-fill: #0b1220 !important;
-    --checkbox-background-color: #0b1220 !important;
-    --checkbox-background-color-selected: #22d3ee !important;
-    --neutral-950: #05070c !important;
+    color-scheme: light;
+    /* Gradio 6 내부 컴포넌트(슬라이더/드롭다운 등)가 라이트 팔레트를 그대로 쓰도록
+       변수 레벨에서 고정한다. .ds-* 클래스만으로는 내부 컴포넌트가 예전 다크 변수값을
+       참조해 라이트/다크가 뒤섞여 보이는 문제가 있었다 (2026-08-03 스펙에서 겪은 문제의
+       재발 방지). */
+    --body-background-fill: #f4f2ec !important;
+    --background-fill-primary: #ffffff !important;
+    --background-fill-secondary: #f7f5ef !important;
+    --border-color-primary: #e6e1d3 !important;
+    --border-color-accent: #c8102e !important;
+    --block-background-fill: #ffffff !important;
+    --block-border-color: #e6e1d3 !important;
+    --block-label-background-fill: #ffffff !important;
+    --block-label-text-color: #6b6555 !important;
+    --body-text-color: #14203c !important;
+    --body-text-color-subdued: #6b6555 !important;
+    --input-background-fill: #f7f5ef !important;
+    --checkbox-background-color: #f7f5ef !important;
+    --checkbox-background-color-selected: #c8102e !important;
+    --neutral-950: #14203c !important;
 }
 .gradio-container, .gradio-container p, .gradio-container span, .gradio-container label {
-    color: #e5e7eb;
+    color: #14203c;
 }
 .gradio-container h1, .gradio-container h2, .gradio-container h3, .gradio-container h4,
-.gradio-container button, .ds-panel-title, .ds-board-title, .ds-qa-title, .ds-chip {
+.gradio-container button, .ds-panel-title, .ds-board-title, .ds-qa-title, .ds-step-dot {
     font-family: 'Teko', 'Pretendard', sans-serif !important;
     letter-spacing: 0.02em;
 }
-/* Windows에서 브라우저가 네이티브 input/select/textarea를 강제로 반전시켜
-   검은 배경에 검은 글씨로 겹쳐 보이는 문제 방지 */
 .gradio-container input,
 .gradio-container textarea,
 .gradio-container select {
-    background: #0b1220 !important;
-    color: #e5e7eb !important;
+    background: #f7f5ef !important;
+    color: #14203c !important;
 }
-.gradio-container h1 { color: #f8fafc; font-size: 30px !important; margin-bottom: 6px !important; }
-.gradio-container h2 { color: #f8fafc; font-size: 22px !important; }
+.gradio-container h1 { color: #14203c; font-size: 30px !important; margin-bottom: 6px !important; }
+.gradio-container h2 { color: #14203c; font-size: 22px !important; }
 .gradio-container h3, .gradio-container h4 {
-    color: #f8fafc; font-size: 18px !important; margin-top: 26px !important; margin-bottom: 12px !important;
+    color: #14203c; font-size: 18px !important; margin-top: 26px !important; margin-bottom: 12px !important;
 }
-/* 입력 영역 = 경기 설정 패널 / 결과 영역 = 코칭 보드 / Q&A 패널 공통 여백 */
+/* 입력 영역 = 경기 설정 패널 / 결과 영역 = 코칭 보드 / Q&A 패널 공통 카드 스타일 */
 .ds-panel, .ds-board, .ds-qa-panel {
-    border-radius: 18px !important;
-    padding: 26px 28px !important;
-    margin: 26px 0 !important;
-}
-.ds-panel {
-    background: linear-gradient(180deg, #111827 0%, #0b1220 100%) !important;
-    border: 1px solid #1e293b !important;
-    box-shadow: 0 0 0 1px rgba(34,211,238,0.08), 0 8px 24px rgba(0,0,0,0.45);
-}
-.ds-board {
-    background: linear-gradient(180deg, #0f1b12 0%, #0a1410 100%) !important;
-    border: 1px solid #14532d !important;
-    box-shadow: 0 0 0 1px rgba(34,197,94,0.10), 0 8px 24px rgba(0,0,0,0.45);
-}
-.ds-qa-panel {
-    background: linear-gradient(180deg, #14131f 0%, #0a0a12 100%) !important;
-    border: 1px solid #2e1065 !important;
+    border-radius: 16px !important;
+    padding: 24px 26px !important;
+    margin: 20px 0 !important;
+    background: #ffffff !important;
+    border: 1px solid #e6e1d3 !important;
+    box-shadow: 0 4px 14px rgba(20,32,60,0.06);
 }
 .ds-panel-title, .ds-board-title, .ds-qa-title {
-    font-weight: 800; letter-spacing: 0.05em; font-size: 18px; padding: 2px 0 14px 12px;
+    font-weight: 800; letter-spacing: 0.03em; font-size: 17px; padding: 2px 0 14px 12px;
     margin: 0 !important; border-left: 4px solid;
 }
-.ds-panel-title { color: #22d3ee; border-color: #22d3ee; }
-.ds-board-title { color: #22c55e; border-color: #22c55e; }
-.ds-qa-title { color: #a78bfa; border-color: #a78bfa; }
+.ds-panel-title { color: #c8102e; border-color: #c8102e; }
+.ds-board-title { color: #14203c; border-color: #14203c; }
+.ds-qa-title { color: #14203c; border-color: #c8102e; }
 /* 볼/스트라이크/아웃 스코어보드 */
 .ds-scoreboard {
-    background: #05070c !important;
-    border: 1px solid #1e293b !important;
-    border-radius: 14px !important;
+    background: #f7f5ef !important;
+    border: 1px solid #e6e1d3 !important;
+    border-radius: 12px !important;
     padding: 14px 10px !important;
     margin: 6px 0 16px 0 !important;
 }
-.ds-scoreboard input[type=range] { accent-color: #22d3ee; }
+.ds-scoreboard input[type=range] { accent-color: #c8102e; }
+.ds-scoreboard input[type=number] { font-family: 'Share Tech Mono', monospace !important; }
 /* 주자 베이스 카드 */
 .ds-base-card {
-    background: #0b1220 !important; border: 1px solid #334155 !important; border-radius: 12px !important;
+    background: #f7f5ef !important; border: 1px solid #e6e1d3 !important; border-radius: 10px !important;
     padding: 4px 2px !important;
 }
 .ds-base-card label { font-size: 15.5px !important; }
-.ds-base-card label::before { content: "\\25C6"; color: #64748b; margin-right: 6px; }
-.ds-base-card:has(input:checked) { border-color: #f59e0b !important; box-shadow: 0 0 12px rgba(245,158,11,0.55); }
-.ds-base-card:has(input:checked) label::before { color: #f59e0b; }
-/* 버튼: 클릭 가능한 느낌 강화 */
-.gradio-container button { font-size: 15.5px !important; border-radius: 10px !important; }
-.ds-btn-analyze {
-    font-size: 19px !important; font-weight: 800 !important; padding: 18px !important;
-    box-shadow: 0 0 20px rgba(34,211,238,0.4) !important; margin-top: 12px !important;
+.ds-base-card label::before { content: "\\25C6"; color: #b8ae94; margin-right: 6px; }
+.ds-base-card:has(input:checked) { border-color: #c8102e !important; box-shadow: 0 0 0 2px rgba(200,16,46,0.15); }
+.ds-base-card:has(input:checked) label::before { color: #c8102e; }
+/* 버튼: Primary(레드)/Ghost(아웃라인) 2종만 사용 */
+.gradio-container button { font-size: 15.5px !important; border-radius: 8px !important; }
+.ds-btn-next, .ds-btn-analyze {
+    background: #c8102e !important; color: #ffffff !important; border: none !important;
+    font-weight: 800 !important; box-shadow: 0 4px 10px rgba(200,16,46,0.28) !important;
 }
-.ds-btn-analyze:hover { box-shadow: 0 0 28px rgba(34,211,238,0.6) !important; transform: translateY(-1px); }
-.ds-btn-pdf { font-size: 16px !important; padding: 12px !important; font-weight: 700 !important; }
+.ds-btn-next:hover, .ds-btn-analyze:hover { box-shadow: 0 6px 16px rgba(200,16,46,0.4) !important; transform: translateY(-1px); }
+.ds-btn-analyze { font-size: 18px !important; padding: 16px !important; margin-top: 12px !important; }
+.ds-btn-prev, .ds-btn-reset {
+    background: transparent !important; color: #6b6555 !important; border: 1.5px solid #ddd8ca !important;
+    box-shadow: none !important; font-weight: 700 !important;
+}
+.ds-btn-prev:hover, .ds-btn-reset:hover { border-color: #14203c !important; color: #14203c !important; }
+.ds-btn-reset { margin-bottom: 10px !important; }
+.ds-btn-pdf {
+    background: transparent !important; color: #14203c !important; border: 1.5px solid #14203c !important;
+    font-size: 15px !important; padding: 11px !important; font-weight: 700 !important; box-shadow: none !important;
+}
+.ds-btn-pdf:hover { background: #14203c !important; color: #ffffff !important; }
 /* 입력 컴포넌트 라벨/텍스트 가독성 */
 .gradio-container label span, .gradio-container .label-wrap span { font-size: 15px !important; }
-/* STRIKE ZONE BOARD (SVG, 스포츠 중계 그래픽 + 게임 HUD 스타일) */
+/* STRIKE ZONE BOARD 카드 (내부 SVG 히트맵 자체 색상은 Task 2에서 별도 보정) */
 .ds-zone-card {
-    background: radial-gradient(circle at 50% 0%, #132036 0%, #060a12 75%);
-    border: 1px solid #1e3a4f; border-radius: 20px; padding: 20px 22px 16px;
-    box-shadow: 0 0 0 1px rgba(34,211,238,0.10), 0 12px 32px rgba(0,0,0,0.5);
+    background: #ffffff;
+    border: 1px solid #e6e1d3; border-radius: 16px; padding: 18px 20px 14px;
+    box-shadow: 0 4px 14px rgba(20,32,60,0.06);
 }
-.ds-zone-header { text-align: center; letter-spacing: 0.08em; font-weight: 800; }
-.ds-zone-header-en { color: #22d3ee; font-size: 22px; text-shadow: 0 0 14px rgba(34,211,238,0.5); }
-.ds-zone-header-sep { color: #475569; margin: 0 10px; font-weight: 400; }
-.ds-zone-header-kr { color: #f8fafc; font-size: 20px; }
+.ds-zone-header { text-align: center; letter-spacing: 0.06em; font-weight: 800; }
+.ds-zone-header-en { color: #c8102e; font-size: 20px; }
+.ds-zone-header-sep { color: #b8ae94; margin: 0 10px; font-weight: 400; }
+.ds-zone-header-kr { color: #14203c; font-size: 18px; }
 .ds-zone-badge {
-    background: rgba(34,211,238,0.12); color: #67e8f9; border: 1px solid rgba(103,232,249,0.4);
+    background: rgba(200,16,46,0.08); color: #c8102e; border: 1px solid rgba(200,16,46,0.3);
     border-radius: 999px; font-size: 11px; padding: 3px 10px; margin-left: 10px; letter-spacing: 0.05em;
 }
-.ds-zone-sub { text-align: center; color: #94a3b8; font-size: 13.5px; margin-top: 4px; }
+.ds-zone-sub { text-align: center; color: #6b6555; font-size: 13.5px; margin-top: 4px; }
 .ds-zone-svg { width: 100%; height: auto; display: block; margin-top: 6px; }
 .ds-zone-footer {
-    display: flex; align-items: center; justify-content: space-between; color: #94a3b8;
+    display: flex; align-items: center; justify-content: space-between; color: #6b6555;
     font-size: 13px; margin-top: 4px; gap: 10px;
 }
 .ds-zone-legend { display: flex; align-items: center; gap: 8px; }
@@ -1424,47 +1424,70 @@ CUSTOM_CSS = """
     width: 70px; height: 8px; border-radius: 999px;
     background: linear-gradient(90deg, rgb(8,145,178), rgb(225,29,72));
 }
-.ds-zone-legend-label { font-size: 11px; color: #64748b; }
-.ds-zone-caption { text-align: center; color: #f1f5f9; font-weight: 700; font-size: 15px; margin-top: 10px; }
+.ds-zone-legend-label { font-size: 11px; color: #9a927c; }
+.ds-zone-caption { text-align: center; color: #14203c; font-weight: 700; font-size: 15px; margin-top: 10px; }
 /* 분석 완료/진행 상태 표시 */
 .ds-status {
     text-align: center; font-weight: 700; font-size: 14.5px; padding: 10px 14px;
     border-radius: 10px; margin: 6px 0 14px 0;
 }
-.ds-status-done { background: rgba(34,197,94,0.12); color: #4ade80; border: 1px solid rgba(74,222,128,0.4); }
-.ds-status-pending { background: rgba(250,204,21,0.10); color: #facc15; border: 1px solid rgba(250,204,21,0.35); }
+.ds-status-done { background: rgba(31,138,76,0.08); color: #1f8a4c; border: 1px solid rgba(31,138,76,0.3); }
+.ds-status-pending { background: rgba(184,134,11,0.08); color: #8a6d00; border: 1px solid rgba(184,134,11,0.3); }
 
-/* ===== 야간경기 위저드 ===== */
-.ds-wizard-card { position: relative; overflow: hidden; }
-.ds-wizard-card::before {
-    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-    background-image: repeating-linear-gradient(90deg, #ef4444 0 12px, transparent 12px 24px);
-    opacity: 0.55;
-}
-.ds-wizard-progress { gap: 8px !important; flex-wrap: wrap; margin: 4px 0 18px 0 !important; }
-.ds-chip {
-    background: #0b1220 !important; border: 1px solid #1e293b !important; color: #94a3b8 !important;
-    border-radius: 999px !important; padding: 8px 16px !important; font-size: 16px !important;
-    font-weight: 600 !important; box-shadow: none !important;
-}
-.ds-chip:hover { border-color: #22d3ee !important; color: #67e8f9 !important; }
-.ds-btn-next {
-    background: linear-gradient(180deg, #16a34a, #14532d) !important; color: #ecfdf5 !important;
-    font-weight: 800 !important; box-shadow: 0 0 16px rgba(34,197,94,0.35) !important;
-}
-.ds-btn-next:hover { box-shadow: 0 0 24px rgba(34,197,94,0.55) !important; transform: translateY(-1px); }
-.ds-btn-prev { background: #111827 !important; color: #cbd5e1 !important; border: 1px solid #1e293b !important; }
-.ds-btn-reset {
-    background: linear-gradient(180deg, #7c3aed, #4c1d95) !important; color: #f5f3ff !important;
-    font-weight: 800 !important; box-shadow: 0 0 16px rgba(124,58,237,0.4) !important; margin-bottom: 10px !important;
-}
-.ds-scoreboard input[type=number] { font-family: 'Share Tech Mono', monospace !important; }
-/* 스텝 전환은 위쪽 커스텀 칩(ds-chip)으로만 하므로, gr.Tabs 기본 탭 헤더는 숨긴다 */
-.ds-wizard-tabs > .tab-wrapper { display: none !important; }
-/* Gradio visible=False 토글 시 빈 껍데기 카드가 남는 것 방지 (안전망) */
+/* ===== 위저드 카드 ===== */
+.ds-wizard-card { position: relative; }
 .ds-wizard-card[style*="display: none"] {
     display: none !important; height: 0 !important; min-height: 0 !important;
     padding: 0 !important; margin: 0 !important; border: none !important; overflow: hidden !important;
+}
+/* 스텝 전환은 위쪽 진행 트랙으로만 하므로 gr.Tabs 기본 헤더는 숨긴다 */
+.ds-wizard-tabs > .tab-wrapper { display: none !important; }
+
+/* ===== 위저드 진행 트랙 (완료=레드 밑줄 / 현재=네이비 강조 / 예정=연한 회색) ===== */
+.ds-wizard-progress { gap: 4px !important; margin: 4px 0 22px 0 !important; flex-wrap: nowrap !important; }
+.ds-step-dot {
+    flex: 1; border-radius: 8px 8px 0 0 !important; border: none !important;
+    border-bottom: 3px solid #ddd8ca !important; background: transparent !important; box-shadow: none !important;
+    color: #b8ae94 !important; font-weight: 700 !important; padding: 10px 6px !important; font-size: 13.5px !important;
+}
+.ds-step-dot:hover { color: #14203c !important; }
+.ds-step-done { border-bottom-color: #c8102e !important; color: #c8102e !important; }
+.ds-step-now {
+    border-bottom-color: #14203c !important; color: #14203c !important;
+    background: #f7f5ef !important; border-radius: 8px 8px 0 0 !important;
+}
+.ds-step-next { border-bottom-color: #ddd8ca !important; color: #b8ae94 !important; }
+
+/* ===== 현재 매치업 요약 패널 (데스크톱 전용, Task 5) ===== */
+.ds-matchup-panel {
+    display: none;
+    background: #14203c !important; color: #ffffff !important;
+    border-radius: 16px !important; padding: 22px !important;
+}
+.ds-matchup-panel .ds-mp-title {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: #b9c3dd; text-transform: uppercase;
+    border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 10px; margin-bottom: 10px;
+}
+.ds-matchup-panel .ds-mp-row {
+    display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 7px 0;
+    border-bottom: 1px dashed rgba(255,255,255,0.12);
+}
+.ds-matchup-panel .ds-mp-row span:first-child { color: #b9c3dd; }
+.ds-matchup-panel .ds-mp-row span:last-child { font-weight: 700; text-align: right; }
+
+/* ===== 결과 화면 벤토 그리드 (Task 6) ===== */
+.ds-bento { display: grid !important; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 0; }
+.ds-bento > .form { background: transparent !important; border: none !important; box-shadow: none !important; }
+.ds-bento-wide { grid-column: 1 / -1 !important; }
+
+/* ===== 반응형 브레이크포인트 ===== */
+@media (min-width: 1280px) {
+    .ds-matchup-panel { display: block; }
+    .ds-bento { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 639px) {
+    .ds-step-dot { font-size: 11.5px !important; padding: 8px 3px !important; }
+    .ds-panel, .ds-board, .ds-qa-panel { padding: 16px 14px !important; }
 }
 """
 
