@@ -1361,6 +1361,29 @@ CUSTOM_CSS = """
 .ds-panel-title { color: #c8102e; border-color: #c8102e; }
 .ds-board-title { color: #14203c; border-color: #14203c; }
 .ds-qa-title { color: #14203c; border-color: #c8102e; }
+/* 전략 리포트 아코디언 — 본문은 기본 마크다운 검정 텍스트 대신 브랜드 컬러 위계를 따른다 */
+.ds-report-accordion {
+    border: 1px solid #e6e1d3 !important; border-radius: 12px !important; background: #fbfaf6 !important;
+    margin: 8px 0 4px 0 !important;
+}
+.ds-report-accordion > .label-wrap { padding: 12px 16px !important; }
+.ds-report-accordion > .label-wrap span { font-weight: 700 !important; color: #14203c !important; font-size: 15px !important; }
+.ds-report-md { padding: 4px 16px 16px !important; }
+.ds-report-md h1 { display: none; } /* "⚾ DiamondScout AI 전력분석 리포트" 대제목은 화면에서는 중복이라 숨김 */
+.ds-report-md h2 {
+    color: #c8102e !important; font-size: 18px !important; margin: 18px 0 6px !important;
+    border-bottom: 2px solid #f0dede; padding-bottom: 6px;
+}
+.ds-report-md h3, .ds-report-md h4 {
+    color: #14203c !important; font-size: 15.5px !important; margin: 16px 0 6px !important;
+}
+.ds-report-md p, .ds-report-md li { color: #4a4638 !important; font-size: 14.5px !important; line-height: 1.65 !important; }
+.ds-report-md strong { color: #14203c !important; }
+.ds-report-md blockquote {
+    border-left: 3px solid #c8102e !important; background: rgba(200,16,46,0.05) !important;
+    padding: 8px 12px !important; border-radius: 0 6px 6px 0 !important; margin: 8px 0 !important;
+}
+.ds-report-md em { color: #8a8367; }
 /* 볼/스트라이크/아웃 스코어보드 */
 .ds-scoreboard {
     background: #f7f5ef !important;
@@ -1926,8 +1949,8 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                         gr.Markdown("#### STRIKE ZONE BOARD")
                         p_hotcold_plot = gr.HTML()
 
-                gr.Markdown("#### 전략 리포트")
-                p_report_output = gr.Markdown()
+                with gr.Accordion("상세 리포트 전체 보기 (근거 · 참고 데이터)", open=False, elem_classes=["ds-report-accordion"]):
+                    p_report_output = gr.Markdown(elem_classes=["ds-report-md"])
                 p_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
                 p_pdf_file_output = gr.File(label="다운로드 파일")
 
@@ -2078,8 +2101,8 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                         gr.Markdown("#### STRIKE ZONE BOARD")
                         b_hotcold_plot = gr.HTML()
 
-                gr.Markdown("#### 전략 리포트")
-                b_report_output = gr.Markdown()
+                with gr.Accordion("상세 리포트 전체 보기 (근거 · 참고 데이터)", open=False, elem_classes=["ds-report-accordion"]):
+                    b_report_output = gr.Markdown(elem_classes=["ds-report-md"])
                 b_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
                 b_pdf_file_output = gr.File(label="다운로드 파일")
 
