@@ -1455,6 +1455,19 @@ CUSTOM_CSS = """
     display: none !important; height: 0 !important; min-height: 0 !important;
     padding: 0 !important; margin: 0 !important; border: none !important; overflow: hidden !important;
 }
+/* 스텝 전환 애니메이션 — Gradio가 비활성 스텝에 인라인 style="display: none"을 걸었다가
+   빼는 방식으로 전환하므로, display:none에서 벗어날 때마다 애니메이션이 처음부터 다시
+   재생된다(별도 JS 트리거 불필요). */
+.ds-wizard-card:not([style*="display: none"]) {
+    animation: ds-step-in 0.32s ease;
+}
+@keyframes ds-step-in {
+    from { opacity: 0; transform: translateX(14px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .ds-wizard-card { animation: none !important; }
+}
 /* 스텝 전환은 위쪽 진행 트랙으로만 하므로 gr.Tabs 기본 헤더는 숨긴다
    (Gradio 6.19.0 기준, 버전 업그레이드 시 DOM 구조 변경 여부 재확인 필요) */
 .ds-wizard-tabs > .tab-wrapper { display: none !important; }
