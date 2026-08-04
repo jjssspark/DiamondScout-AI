@@ -1102,7 +1102,7 @@ def run_pitcher_analysis(
     avoid_text = f"{pitch_label_kr(pr['avoid_pitch'])} ({pr['avoid_pitch']})" if pr["avoid_pitch"] else "-"
     recommend_card_html = render_hero_recommend_card(
         "⚾ 추천 구종", recommended_text, "예측 확률·구사 성향·매치업·위험도를 종합한 1순위 선택",
-        "🚫 피해야 할 구종", avoid_text, accent="#22c55e",
+        "🚫 피해야 할 구종", avoid_text, accent="#1f8a4c",
     )
     batter_weakness_html = render_insight_card("🧑‍💼 상대 타자 약점 요약", pr["batter_weakness"]["summary"])
     # Top-3 각 구종이 실제로 가장 많이 들어간 zone_cell을 궤적 목적지로 사용(구종별 궤적 표시).
@@ -1179,7 +1179,7 @@ def run_batter_analysis(
     br = result["batter_mode_result"]
     recommend_card_html = render_hero_recommend_card(
         "🎯 노릴 코스", br["target_zone"], "예상 투구 확률·상대 패턴·전략 코멘트를 종합한 최우선 코스",
-        "🧭 대응 전략", br["counter_strategy"], accent="#facc15",
+        "🧭 대응 전략", br["counter_strategy"], accent="#1f8a4c",
     )
     pitcher_pattern_html = render_insight_card("🧑‍💼 상대 투수 패턴 요약", br["pitcher_pattern"]["summary"])
     batter_trajectories = [
@@ -1289,7 +1289,7 @@ def handle_chat(message, history, state: dict | None):
 
 
 # ============================================================================
-# 게임 UI풍 다크 테마 CSS
+# 라이트 스포츠 브로드캐스트 테마 CSS
 # ============================================================================
 
 CUSTOM_CSS = """
@@ -1380,11 +1380,17 @@ CUSTOM_CSS = """
 .ds-base-card:has(input:checked) label::before { color: #c8102e; }
 /* 버튼: Primary(레드)/Ghost(아웃라인) 2종만 사용 */
 .gradio-container button { font-size: 15.5px !important; border-radius: 8px !important; }
-.ds-btn-next, .ds-btn-analyze {
+.ds-btn-analyze {
     background: #c8102e !important; color: #ffffff !important; border: none !important;
     font-weight: 800 !important; box-shadow: 0 4px 10px rgba(200,16,46,0.28) !important;
 }
-.ds-btn-next:hover, .ds-btn-analyze:hover { box-shadow: 0 6px 16px rgba(200,16,46,0.4) !important; transform: translateY(-1px); }
+.ds-btn-analyze:hover { box-shadow: 0 6px 16px rgba(200,16,46,0.4) !important; transform: translateY(-1px); }
+/* "다음" 버튼은 "분석 실행"(레드)과 시각적으로 구분되도록 네이비로 분리 */
+.ds-btn-next {
+    background: #14203c !important; color: #ffffff !important; border: none !important;
+    font-weight: 800 !important; box-shadow: 0 4px 10px rgba(20,32,60,0.28) !important;
+}
+.ds-btn-next:hover { box-shadow: 0 6px 16px rgba(20,32,60,0.4) !important; transform: translateY(-1px); }
 .ds-btn-prev, .ds-btn-reset {
     background: transparent !important; color: #6b6555 !important; border: 1.5px solid #ddd8ca !important;
     box-shadow: none !important; font-weight: 700 !important;
@@ -1404,11 +1410,11 @@ CUSTOM_CSS = """
 .ds-btn-pdf:hover { background: #14203c !important; color: #ffffff !important; }
 /* Gradio가 버튼을 감싸는 .styler 래퍼에 자체 배경(#e6e1d3)을 깔아서, 버튼 자체를
    transparent로 둬도 뒤에서 베이지색이 비쳐 보였다. 래퍼 배경을 투명화해 카드(.ds-board)의
-   흰 배경이 그대로 보이게 한다. */
+   흰 배경이 그대로 보이게 한다. (Gradio 6.19.0 기준, 버전 업그레이드 시 DOM 구조 변경 여부 재확인 필요) */
 .styler:has(> .ds-btn-pdf) { background: transparent !important; }
 /* 입력 컴포넌트 라벨/텍스트 가독성 */
 .gradio-container label span, .gradio-container .label-wrap span { font-size: 15px !important; }
-/* STRIKE ZONE BOARD 카드 (내부 SVG 히트맵 자체 색상은 Task 2에서 별도 보정) */
+/* STRIKE ZONE BOARD 카드 (내부 SVG 히트맵 자체 색상은 별도 보정) */
 .ds-zone-card {
     background: #ffffff;
     border: 1px solid #e6e1d3; border-radius: 16px; padding: 18px 20px 14px;
@@ -1449,7 +1455,8 @@ CUSTOM_CSS = """
     display: none !important; height: 0 !important; min-height: 0 !important;
     padding: 0 !important; margin: 0 !important; border: none !important; overflow: hidden !important;
 }
-/* 스텝 전환은 위쪽 진행 트랙으로만 하므로 gr.Tabs 기본 헤더는 숨긴다 */
+/* 스텝 전환은 위쪽 진행 트랙으로만 하므로 gr.Tabs 기본 헤더는 숨긴다
+   (Gradio 6.19.0 기준, 버전 업그레이드 시 DOM 구조 변경 여부 재확인 필요) */
 .ds-wizard-tabs > .tab-wrapper { display: none !important; }
 
 /* ===== 위저드 진행 트랙 (완료=레드 밑줄 / 현재=네이비 강조 / 예정=연한 회색) ===== */
@@ -1461,13 +1468,15 @@ CUSTOM_CSS = """
 }
 .ds-step-dot:hover { color: #14203c !important; }
 .ds-step-done { border-bottom-color: #c8102e !important; color: #c8102e !important; }
+/* 색상만으로 완료 상태를 구분하면 색각 이상 사용자가 인지하기 어려우므로 체크마크를 덧붙인다 */
+.ds-step-done::after { content: " \\2713"; }
 .ds-step-now {
     border-bottom-color: #14203c !important; color: #14203c !important;
     background: #f7f5ef !important; border-radius: 8px 8px 0 0 !important;
 }
 .ds-step-next { border-bottom-color: #ddd8ca !important; color: #b8ae94 !important; }
 
-/* ===== 현재 매치업 요약 패널 (데스크톱 전용, Task 5) ===== */
+/* ===== 현재 매치업 요약 패널 (데스크톱 전용) ===== */
 .ds-matchup-panel {
     display: none;
     background: #14203c !important; color: #ffffff !important;
@@ -1484,9 +1493,8 @@ CUSTOM_CSS = """
 .ds-matchup-panel .ds-mp-row span:first-child { color: #b9c3dd; }
 .ds-matchup-panel .ds-mp-row span:last-child { font-weight: 700; text-align: right; color: #ffffff !important; }
 
-/* ===== 결과 화면 벤토 그리드 (Task 6) ===== */
+/* ===== 결과 화면 벤토 그리드 ===== */
 .ds-bento { display: grid !important; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 0; }
-.ds-bento > .form { background: transparent !important; border: none !important; box-shadow: none !important; }
 .ds-bento-wide { grid-column: 1 / -1 !important; }
 
 /* ===== 반응형 브레이크포인트 ===== */
@@ -1495,7 +1503,14 @@ CUSTOM_CSS = """
     .ds-bento { grid-template-columns: repeat(4, 1fr); }
 }
 @media (max-width: 639px) {
-    .ds-step-dot { font-size: 11.5px !important; padding: 8px 3px !important; }
+    /* flex:1 인 버튼은 기본 min-width:auto 때문에 텍스트 폭 밑으로 줄어들지 않아, 4개를 한 줄에
+       나눠 담을 좁은 화면에서 뒤쪽 스텝(3/4)이 트랙 밖으로 밀려나 보이지 않는 문제가 있었다.
+       min-width:0으로 강제 축소를 허용하고, 넘치는 텍스트는 말줄임표로 처리한다. */
+    .ds-step-dot {
+        font-size: 11.5px !important; padding: 8px 3px !important; letter-spacing: -0.01em !important;
+        min-width: 0 !important; overflow: hidden !important; text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
     .ds-panel, .ds-board, .ds-qa-panel { padding: 16px 14px !important; }
 }
 """
@@ -1571,18 +1586,24 @@ def render_analysis_status(done: bool) -> str:
     return f'<div class="ds-status ds-status-done">✅ 분석 완료 — 코칭 보드가 갱신되었습니다 · 마지막 분석 시간 {timestamp}</div>'
 
 
-def render_matchup_summary(pitcher_label, batter_label, balls, strikes, outs, inning, topbot) -> str:
+def render_matchup_summary(pitcher_id, batter_id, balls, strikes, outs, inning, topbot) -> str:
     """데스크톱(≥1280px) 2단 레이아웃 우측에 상시 노출되는 "현재 매치업" 요약 패널.
     위저드 스텝을 넘나드는 동안에도 지금까지 입력한 값을 다시 스크롤하지 않고 확인할 수 있게 한다.
     모바일/태블릿에서는 .ds-matchup-panel이 display:none이라 이 패널 자체가 안 보이므로,
-    좁은 화면에서는 기존과 동일하게 STEP 1로 돌아가야 매치업을 다시 확인할 수 있다."""
+    좁은 화면에서는 기존과 동일하게 STEP 1로 돌아가야 매치업을 다시 확인할 수 있다.
+
+    pitcher_id/batter_id는 .change() 와이어링에서 gr.Dropdown(choices=(label, id) 튜플)이
+    실제로 넘겨주는 id 값이므로, 표시용 이름으로 변환해서 렌더링한다."""
+    pitcher_label = scouting_service.get_pitcher_name(pitcher_id)
+    batter_label = get_batter_display(batter_id)
+    inning_display = inning if inning is not None else "-"
     topbot_short = "초" if "초" in topbot else "말"
     return f"""
     <div class="ds-mp-title">현재 매치업</div>
     <div class="ds-mp-row"><span>투수</span><span>{pitcher_label}</span></div>
     <div class="ds-mp-row"><span>타자</span><span>{batter_label}</span></div>
     <div class="ds-mp-row"><span>카운트</span><span>{balls}B - {strikes}S, {outs}아웃</span></div>
-    <div class="ds-mp-row"><span>이닝</span><span>{inning}회 {topbot_short}</span></div>
+    <div class="ds-mp-row"><span>이닝</span><span>{inning_display}회 {topbot_short}</span></div>
     """
 
 
