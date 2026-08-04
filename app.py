@@ -1402,6 +1402,10 @@ CUSTOM_CSS = """
     font-size: 15px !important; padding: 11px !important; font-weight: 700 !important; box-shadow: none !important;
 }
 .ds-btn-pdf:hover { background: #14203c !important; color: #ffffff !important; }
+/* Gradio가 버튼을 감싸는 .styler 래퍼에 자체 배경(#e6e1d3)을 깔아서, 버튼 자체를
+   transparent로 둬도 뒤에서 베이지색이 비쳐 보였다. 래퍼 배경을 투명화해 카드(.ds-board)의
+   흰 배경이 그대로 보이게 한다. */
+.styler:has(> .ds-btn-pdf) { background: transparent !important; }
 /* 입력 컴포넌트 라벨/텍스트 가독성 */
 .gradio-container label span, .gradio-container .label-wrap span { font-size: 15px !important; }
 /* STRIKE ZONE BOARD 카드 (내부 SVG 히트맵 자체 색상은 Task 2에서 별도 보정) */
