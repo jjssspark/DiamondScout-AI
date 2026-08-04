@@ -1569,20 +1569,41 @@ def render_analysis_status(done: bool) -> str:
 WIZARD_STEP_LABELS = ["1️⃣ 매치업", "2️⃣ 상황판", "3️⃣ 베이스&스코어", "4️⃣ 작전지시"]
 
 
+def _step_dot_classes(step: int) -> list[list[str]]:
+    """1~4번 스텝 진행 트랙 버튼에 완료(레드)/현재(네이비)/예정(연한 회색) 상태 클래스를 계산한다."""
+    classes = []
+    for i in range(1, 5):
+        if i < step:
+            classes.append(["ds-step-dot", "ds-step-done"])
+        elif i == step:
+            classes.append(["ds-step-dot", "ds-step-now"])
+        else:
+            classes.append(["ds-step-dot", "ds-step-next"])
+    return classes
+
+
+def _step_dot_updates(step: int):
+    c = _step_dot_classes(step)
+    return (
+        gr.Button(elem_classes=c[0]), gr.Button(elem_classes=c[1]),
+        gr.Button(elem_classes=c[2]), gr.Button(elem_classes=c[3]),
+    )
+
+
 def _goto_step_1():
-    return gr.Tabs(selected=0), 1
+    return (gr.Tabs(selected=0), 1, *_step_dot_updates(1))
 
 
 def _goto_step_2():
-    return gr.Tabs(selected=1), 2
+    return (gr.Tabs(selected=1), 2, *_step_dot_updates(2))
 
 
 def _goto_step_3():
-    return gr.Tabs(selected=2), 3
+    return (gr.Tabs(selected=2), 3, *_step_dot_updates(3))
 
 
 def _goto_step_4():
-    return gr.Tabs(selected=3), 4
+    return (gr.Tabs(selected=3), 4, *_step_dot_updates(4))
 
 
 def _step_prev(current_step: int):
@@ -1591,12 +1612,12 @@ def _step_prev(current_step: int):
     갱신이 반영되지 않는 문제가 있어 (스텝2->3, 3->4에서 재현), Gradio가 이런
     스텝형 전환을 위해 제공하는 gr.Tabs(selected=) 방식으로 바꿨다."""
     target = max(1, int(current_step) - 1)
-    return gr.Tabs(selected=target - 1), target
+    return (gr.Tabs(selected=target - 1), target, *_step_dot_updates(target))
 
 
 def _step_next(current_step: int):
     target = min(4, int(current_step) + 1)
-    return gr.Tabs(selected=target - 1), target
+    return (gr.Tabs(selected=target - 1), target, *_step_dot_updates(target))
 
 
 with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
@@ -1613,10 +1634,10 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
             p_step_state = gr.State(1)
 
             with gr.Row(elem_classes=["ds-wizard-progress"]):
-                p_chip1 = gr.Button(WIZARD_STEP_LABELS[0], elem_classes=["ds-chip"], size="sm")
-                p_chip2 = gr.Button(WIZARD_STEP_LABELS[1], elem_classes=["ds-chip"], size="sm")
-                p_chip3 = gr.Button(WIZARD_STEP_LABELS[2], elem_classes=["ds-chip"], size="sm")
-                p_chip4 = gr.Button(WIZARD_STEP_LABELS[3], elem_classes=["ds-chip"], size="sm")
+                p_chip1 = gr.Button(WIZARD_STEP_LABELS[0], elem_classes=["ds-step-dot", "ds-step-now"], size="sm")
+                p_chip2 = gr.Button(WIZARD_STEP_LABELS[1], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
+                p_chip3 = gr.Button(WIZARD_STEP_LABELS[2], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
+                p_chip4 = gr.Button(WIZARD_STEP_LABELS[3], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
 
             with gr.Tabs(elem_classes=["ds-wizard-tabs"]) as p_wizard_tabs:
                 with gr.Tab("매치업", id=0):
@@ -1716,7 +1737,7 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
             )
             p_pdf_btn.click(fn=generate_pdf, inputs=[p_result_state], outputs=[p_pdf_file_output])
 
-            p_wizard_outputs = [p_wizard_tabs, p_step_state]
+            p_wizard_outputs = [p_wizard_tabs, p_step_state, p_chip1, p_chip2, p_chip3, p_chip4]
             p_prev_btn.click(fn=_step_prev, inputs=[p_step_state], outputs=p_wizard_outputs)
             p_next_btn.click(fn=_step_next, inputs=[p_step_state], outputs=p_wizard_outputs)
             p_chip1.click(fn=_goto_step_1, outputs=p_wizard_outputs)
@@ -1745,10 +1766,10 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
             b_step_state = gr.State(1)
 
             with gr.Row(elem_classes=["ds-wizard-progress"]):
-                b_chip1 = gr.Button(WIZARD_STEP_LABELS[0], elem_classes=["ds-chip"], size="sm")
-                b_chip2 = gr.Button(WIZARD_STEP_LABELS[1], elem_classes=["ds-chip"], size="sm")
-                b_chip3 = gr.Button(WIZARD_STEP_LABELS[2], elem_classes=["ds-chip"], size="sm")
-                b_chip4 = gr.Button(WIZARD_STEP_LABELS[3], elem_classes=["ds-chip"], size="sm")
+                b_chip1 = gr.Button(WIZARD_STEP_LABELS[0], elem_classes=["ds-step-dot", "ds-step-now"], size="sm")
+                b_chip2 = gr.Button(WIZARD_STEP_LABELS[1], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
+                b_chip3 = gr.Button(WIZARD_STEP_LABELS[2], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
+                b_chip4 = gr.Button(WIZARD_STEP_LABELS[3], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
 
             with gr.Tabs(elem_classes=["ds-wizard-tabs"]) as b_wizard_tabs:
                 with gr.Tab("매치업", id=0):
@@ -1847,7 +1868,7 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
             )
             b_pdf_btn.click(fn=generate_pdf, inputs=[b_result_state], outputs=[b_pdf_file_output])
 
-            b_wizard_outputs = [b_wizard_tabs, b_step_state]
+            b_wizard_outputs = [b_wizard_tabs, b_step_state, b_chip1, b_chip2, b_chip3, b_chip4]
             b_prev_btn.click(fn=_step_prev, inputs=[b_step_state], outputs=b_wizard_outputs)
             b_next_btn.click(fn=_step_next, inputs=[b_step_state], outputs=b_wizard_outputs)
             b_chip1.click(fn=_goto_step_1, outputs=b_wizard_outputs)
