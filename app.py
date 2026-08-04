@@ -1372,14 +1372,35 @@ CUSTOM_CSS = """
 .ds-scoreboard input[type=range] { accent-color: #c8102e; }
 .ds-scoreboard input[type=number] { font-family: 'Share Tech Mono', monospace !important; }
 /* 주자 베이스 카드 */
-.ds-base-card {
-    background: #f7f5ef !important; border: 1px solid #e6e1d3 !important; border-radius: 10px !important;
-    padding: 4px 2px !important;
+/* ===== 주자 상황 다이아몬드 — 체크박스를 실제 루 위치에 맞춰 배치하고 베이스 모양으로 스타일링 ===== */
+.ds-diamond-wrap { justify-content: center !important; padding: 6px 0 26px !important; }
+.ds-diamond { position: relative !important; width: 240px; height: 200px; margin: 0 auto; }
+.ds-diamond::after {
+    content: "HOME"; position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+    font-family: 'Share Tech Mono', monospace; font-size: 10px; color: #9a927c; letter-spacing: 0.08em;
 }
-.ds-base-card label { font-size: 17px !important; }
-.ds-base-card label::before { content: "\\25C6"; color: #b8ae94; margin-right: 6px; }
-.ds-base-card:has(input:checked) { border-color: #c8102e !important; box-shadow: 0 0 0 2px rgba(200,16,46,0.15); }
-.ds-base-card:has(input:checked) label::before { color: #c8102e; }
+.ds-base-card {
+    position: absolute !important; width: 96px !important; background: transparent !important;
+    border: none !important; padding: 0 !important; box-shadow: none !important;
+}
+.ds-base-card.ds-base-2b { top: 0; left: 50%; transform: translateX(-50%); }
+.ds-base-card.ds-base-3b { bottom: 34px; left: 0; }
+.ds-base-card.ds-base-1b { bottom: 34px; right: 0; }
+.ds-base-card label {
+    display: flex !important; flex-direction: column-reverse !important; align-items: center !important; gap: 8px;
+    cursor: pointer;
+}
+.ds-base-card label span { font-size: 14px !important; font-weight: 700; color: #6b6555; }
+.ds-base-card input[type=checkbox] {
+    appearance: none; -webkit-appearance: none; width: 44px !important; height: 44px !important; margin: 0 !important;
+    background: #f7f5ef; border: 2.5px solid #ddd8ca; border-radius: 6px; transform: rotate(45deg);
+    cursor: pointer; transition: all 0.15s ease;
+}
+.ds-base-card input[type=checkbox]:hover { border-color: #c8102e; }
+.ds-base-card input[type=checkbox]:checked {
+    background: #c8102e !important; border-color: #c8102e !important; box-shadow: 0 0 0 6px rgba(200,16,46,0.15);
+}
+.ds-base-card:has(input:checked) label span { color: #c8102e; }
 /* 버튼: Primary(레드)/Ghost(아웃라인) 2종만 사용 */
 .gradio-container button { font-size: 16.5px !important; border-radius: 8px !important; }
 .ds-btn-analyze {
@@ -1833,11 +1854,12 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                         with gr.Tab("베이스 & 스코어", id=2):
                             with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
                                 gr.HTML('<div class="ds-panel-title">STEP 3 · 베이스 & 스코어</div>')
-                                gr.Markdown("#### 주자 상황")
-                                with gr.Row():
-                                    p_on1b_input = gr.Checkbox(value=False, label="1루 주자", elem_classes=["ds-base-card"])
-                                    p_on2b_input = gr.Checkbox(value=False, label="2루 주자", elem_classes=["ds-base-card"])
-                                    p_on3b_input = gr.Checkbox(value=False, label="3루 주자", elem_classes=["ds-base-card"])
+                                gr.Markdown("#### 주자 상황 — 루를 클릭해 표시하세요")
+                                with gr.Row(elem_classes=["ds-diamond-wrap"]):
+                                    with gr.Column(elem_classes=["ds-diamond"]):
+                                        p_on2b_input = gr.Checkbox(value=False, label="2루", elem_classes=["ds-base-card", "ds-base-2b"])
+                                        p_on3b_input = gr.Checkbox(value=False, label="3루", elem_classes=["ds-base-card", "ds-base-3b"])
+                                        p_on1b_input = gr.Checkbox(value=False, label="1루", elem_classes=["ds-base-card", "ds-base-1b"])
                                 gr.Markdown("#### 스코어")
                                 with gr.Row():
                                     p_our_score_input = gr.Number(value=0, precision=0, label="우리팀 점수")
@@ -1985,11 +2007,12 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                         with gr.Tab("베이스 & 스코어", id=2):
                             with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
                                 gr.HTML('<div class="ds-panel-title">STEP 3 · 베이스 & 스코어</div>')
-                                gr.Markdown("#### 주자 상황")
-                                with gr.Row():
-                                    b_on1b_input = gr.Checkbox(value=False, label="1루 주자", elem_classes=["ds-base-card"])
-                                    b_on2b_input = gr.Checkbox(value=False, label="2루 주자", elem_classes=["ds-base-card"])
-                                    b_on3b_input = gr.Checkbox(value=False, label="3루 주자", elem_classes=["ds-base-card"])
+                                gr.Markdown("#### 주자 상황 — 루를 클릭해 표시하세요")
+                                with gr.Row(elem_classes=["ds-diamond-wrap"]):
+                                    with gr.Column(elem_classes=["ds-diamond"]):
+                                        b_on2b_input = gr.Checkbox(value=False, label="2루", elem_classes=["ds-base-card", "ds-base-2b"])
+                                        b_on3b_input = gr.Checkbox(value=False, label="3루", elem_classes=["ds-base-card", "ds-base-3b"])
+                                        b_on1b_input = gr.Checkbox(value=False, label="1루", elem_classes=["ds-base-card", "ds-base-1b"])
                                 gr.Markdown("#### 스코어")
                                 with gr.Row():
                                     b_our_score_input = gr.Number(value=0, precision=0, label="우리팀 점수")
