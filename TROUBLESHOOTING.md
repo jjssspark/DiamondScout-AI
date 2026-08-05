@@ -19,6 +19,8 @@
 
 | ID | 날짜 | 영역 | 문제 | 심각도 | 상태 |
 |---|---|---|---|---|---|
+| TS-005 | 2026-08-05 | Build | PDF 리포트에서 해외 선수 이름의 라틴 악센트 문자(í/ó/ñ 등)가 통째로 빠짐 — AppleGothic 단독 지정의 글리프 커버리지 부족 | Medium | 해결됨 |
+| TS-004 | 2026-08-05 | FE | Instant Scout Q&A 채팅 버블 배경색 CSS가 안 먹힘 — 정적 CSS 파일 기준 클래스 가정이 실제 렌더링 DOM과 다름 | Low | 해결됨 |
 | TS-003 | 2026-08-05 | FE | STEP4 "분석 실행" 버튼이 새로고침 직후 첫 방문에서 100% 사라짐 — Gradio 컴포넌트의 "첫 visible= 전환" 렌더링 누락 | High | 해결됨 |
 | TS-002 | 2026-08-04 | FE | 마운드 장식용 `position:relative`가 절대배치 베이스 3개의 기준 조상을 바꿔 한 점에 뭉쳐 보임 | Medium | 해결됨 |
 | TS-001 | 2026-08-04 | FE | 절대배치 자식만 있는 Gradio `.form` wrapper의 auto-height 붕괴로 베이스 마커 하단이 잘림 | Medium | 해결됨 |
@@ -30,6 +32,119 @@
 ---
 
 ## 기록
+
+## TS-005 · PDF 리포트에서 해외 선수 이름의 라틴 악센트 문자(í/ó/ñ 등)가 통째로 빠짐 — AppleGothic 단독 지정의 글리프 커버리지 부족
+
+| | |
+|---|---|
+| **날짜** | 2026-08-05 |
+| **영역** | Build |
+| **심각도** | Medium |
+| **상태** | 해결됨 |
+| **소요 시간** | 약 15분 |
+
+### 증상
+로컬 실행 로그(`/private/tmp/diamondscout.log`)에 PDF 리포트 생성 시점마다 다음 경고가 반복됐다:
+```
+findfont: Failed to find font weight bold, now using 400.
+/Users/tina/Project/DiamondScout_AI/app.py:1020: UserWarning: Glyph 243 (\N{LATIN SMALL LETTER O WITH ACUTE}) missing from font(s) AppleGothic.
+  pdf.savefig(fig)
+```
+경고 수준이라 앱이 죽지는 않지만, 실제로는 `ó` 같은 글자가 PDF에서 빈 칸으로 통째로 사라진다 — 스페인어권 등 해외 선수 이름이 섞인 매치업에서 리포트 정확성 문제로 이어진다.
+
+### 재현 조건
+- 환경: matplotlib 3.11.0, `plt.rcParams["font.family"] = "AppleGothic"` (`app.py:39`, PDF·히트맵 공용 한글 폰트 설정)
+- 재현 절차: PDF 리포트에 `í/ó/ñ/á` 등 라틴 악센트 문자가 포함된 텍스트를 그리면 항상 발생
+- 재현율: 항상 (해당 글리프가 포함된 텍스트가 있을 때)
+
+### 원인
+- **표면**: `AppleGothic` 폰트에 라틴 악센트 글리프가 없어 matplotlib이 해당 문자를 그리지 못하고 건너뜀
+- **근본(확인됨)**: 처음엔 "AppleGothic이 오래된 폰트라 그렇다"고 가정하고 macOS 최신 한글 폰트인 `Apple SD Gothic Neo`로 교체를 시도했으나, 직접 스크립트로 두 폰트 모두 `Glyph 225/243/244 missing` 경고가 동일하게 발생하는 것을 확인 — **한글 전용으로 구성된 CJK 폰트는 애초에 라틴 악센트 글리프 자체를 포함하지 않는다**는 게 근본 원인이었다. 단일 폰트를 아무리 바꿔도 해결되지 않는 문제였다.
+- **확인 방법**: matplotlib으로 `한글 González 테스트 óôö` 문자열을 각 폰트 설정으로 실제 렌더링해보고 `warnings.catch_warnings()`로 `missing from font` 경고 유무를 직접 캡처해 비교했다.
+
+### 시도했지만 안 된 것
+| 시도 | 결과 | 왜 안 됐는가 |
+|---|---|---|
+| `font.family`를 `AppleGothic` → `Apple SD Gothic Neo`로 교체 | 동일한 `Glyph 225/243/244 missing` 경고 발생 | 두 폰트 다 한글 전용 글리프셋이라 라틴 악센트 문자를 애초에 포함하지 않음 — 폰트를 바꾸는 방향 자체가 틀린 가설이었음 |
+
+### 해결
+matplotlib 3.6+의 폰트 폴백 리스트 기능을 사용해 `font.family`를 단일 문자열이 아니라 리스트로 지정, 글리프가 없을 때 다음 폰트로 자동 대체하도록 했다:
+```python
+# 수정 전
+plt.rcParams["font.family"] = "AppleGothic"
+# 수정 후
+plt.rcParams["font.family"] = ["AppleGothic", "Arial Unicode MS"]
+```
+한글은 `AppleGothic`이 그대로 담당하고, 라틴 악센트 문자만 `Arial Unicode MS`로 자동 폴백된다.
+
+### 검증
+동일한 `한글 González 테스트 óôö` 문자열로 재테스트 — 수정 전엔 `missing from font` 경고 3건(á/ó/ô), 수정 후엔 0건. `warnings.catch_warnings()`로 캡처한 경고 리스트가 빈 배열임을 확인.
+
+### 추후 관리
+- **재발 방지**: 없음(근본 원인 제거)
+- **모니터링**: 없음
+- **남은 리스크**: `findfont: Failed to find font weight bold` 경고는 이번 수정 범위 밖 — 폴백 리스트의 폰트들이 bold 웨이트가 없어 굵게 표시돼야 할 텍스트가 일반 굵기로 렌더링된다(가독성엔 영향 적어 후순위로 남김).
+- **후속 작업**: bold 웨이트 폴백까지 해결하려면 굵은 글꼴을 가진 폰트를 폴백 리스트에 추가로 넣는 방안을 검토
+
+### 배운 점
+경고 메시지가 "폰트가 오래돼서 그렇다"는 첫 인상을 줘도, 실제로는 "그 카테고리의 폰트 전체가 해당 글리프를 포함하지 않는다"는 더 근본적인 문제일 수 있다. 폰트 A→B 교체로 안 풀리면 "같은 종류의 폰트끼리 비교"가 아니라 "폰트 폴백 체인"으로 접근을 바꿔야 한다는 걸 실제 검증(경고 캡처 스크립트)으로 확인하고 나서야 방향을 틀었다.
+
+### 참고
+- matplotlib 폰트 폴백(font fallback) — 3.6부터 `font.family`에 리스트를 지정하면 글리프 단위로 자동 대체
+
+---
+
+## TS-004 · Instant Scout Q&A 채팅 버블 배경색 CSS가 안 먹힘 — 정적 CSS 파일 기준 클래스 가정이 실제 렌더링 DOM과 다름
+
+| | |
+|---|---|
+| **날짜** | 2026-08-05 |
+| **영역** | FE |
+| **심각도** | Low |
+| **상태** | 해결됨 |
+| **소요 시간** | 대화 내 재조사 1회 (수 차례 도구 호출) |
+
+### 증상
+Instant Scout Q&A 채팅을 메신저 스타일 버블 UI로 재디자인하면서, 사용자 말풍선에 네이비 배경색을 주는 CSS를 넣었는데 브라우저에서 전혀 반영되지 않았다 — 스크린샷 상 작은 복숭아색(기본 Gradio 색상)의, 잘린 것처럼 보이는 알약 모양만 나왔다.
+
+### 재현 조건
+- 환경: Gradio 6.19.0 `gr.Chatbot`, `elem_classes=["ds-chatbot"]`
+- 재현 절차: `.ds-chatbot .bubble.user-row { background: navy; }` 형태의 CSS를 `CUSTOM_CSS`에 추가 후 STEP4 Q&A 화면에서 질문 전송
+- 재현율: 항상 (해당 셀렉터 기준)
+
+### 원인
+- **표면**: `.bubble.user-row`에 건 배경색 규칙이 실제 화면에 아무 효과가 없음
+- **근본**: 셀렉터를 `venv/lib/python3.13/site-packages/gradio/templates/frontend/assets/*.css`를 `grep`한 결과만으로 추정해 `.bubble.user-row`/`.bubble.bot-row`로 잡았는데, 실제 라이브 DOM에서는 배경색이 칠해지는 요소가 그 두 클래스의 조합이 아니라 **중첩된 하위 `<div class="user message">` / `<div class="bot message">`** 였다. 정적 CSS 파일 검색만으로는 컴파일된 프론트엔드가 런타임에 실제로 어떤 클래스 조합을 DOM에 그리는지까지는 확정할 수 없었다.
+- **확인 방법**: `mcp__claude-in-chrome__javascript_tool`로 채팅 영역 하위 요소들을 순회하며 각 노드의 `className`과 `getComputedStyle().backgroundColor`를 dump해, 실제로 배경이 칠해지는 노드가 `.message.user`/`.message.bot`임을 특정했다.
+
+### 시도했지만 안 된 것
+| 시도 | 결과 | 왜 안 됐는가 |
+|---|---|---|
+| `.ds-chatbot .bubble.user-row` / `.bubble.bot-row`에 배경·radius 지정 | 스타일 미적용 | 실제 배경이 칠해지는 요소가 이 클래스 조합이 아니었음 (정적 CSS grep으로 추정한 클래스와 런타임 DOM 클래스가 달랐음) |
+
+### 해결
+셀렉터를 실제 DOM에서 확인된 `.message.user` / `.message.bot`로 교체하고, 봇 버블이 컨테이너 거의 전체 폭(1058px)에 4px/10px 정도의 최소 패딩으로 렌더링되어 말풍선이 아니라 그냥 텍스트처럼 보이는 문제도 같이 발견해 `max-width: 82%`, `padding: 10px 14px`를 추가했다.
+```css
+.ds-chatbot .message.user { background: #1b2a4a; color: #fff; border-radius: 16px; max-width: 82%; padding: 10px 14px; }
+.ds-chatbot .message.bot  { background: #fff; border: 1px solid #e2e2e2; border-radius: 16px; max-width: 82%; padding: 10px 14px; }
+```
+
+### 검증
+브라우저에서 STEP4 Q&A로 질문을 보내고 스크린샷 확인 — 사용자 메시지는 우측 정렬 네이비 버블, 봇 응답은 좌측 정렬 흰색 테두리 버블로 정상 렌더링됨을 확인.
+
+### 추후 관리
+- **재발 방지**: Gradio 내부 컴포넌트를 CSS로 커스터마이징할 때는 정적 CSS 파일 `grep` 결과를 최종 근거로 삼지 말고, 반드시 라이브 DOM(`getComputedStyle`/`className` dump)으로 실제 렌더링된 클래스를 먼저 확인하기로 함
+- **모니터링**: 없음
+- **남은 리스크**: Gradio 버전이 올라가면 `.message.user`/`.message.bot` 클래스명이 다시 바뀔 수 있음 — 비공개 구현 세부사항이라 버전 간 안정성 보장 없음
+- **후속 작업**: 없음
+
+### 배운 점
+컴파일된 프론트엔드 프레임워크(Gradio/Svelte)를 CSS로 커스터마이징할 때, 소스 CSS 파일을 정적으로 검색해서 얻은 클래스 이름은 "그 프레임워크가 쓰는 클래스 후보"일 뿐 "지금 이 컴포넌트가 실제로 그리는 DOM 구조"라는 보장이 없다. 확신이 안 서면 라이브 DOM 검사가 항상 더 빠르고 정확하다.
+
+### 참고
+- 없음
+
+---
 
 ## TS-003 · STEP4 "분석 실행" 버튼이 새로고침 직후 첫 방문에서 100% 사라짐 — Gradio 컴포넌트의 "첫 visible= 전환" 렌더링 누락
 

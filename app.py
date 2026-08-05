@@ -35,8 +35,9 @@ from services.scouting_service import (
 )
 
 # matplotlib 기본 폰트(DejaVu Sans)는 한글 글리프가 없어 히트맵/위치 그래프의 한글 라벨이
-# 깨지므로(빈 네모) macOS 기본 한글 폰트로 지정한다.
-plt.rcParams["font.family"] = "AppleGothic"
+# 깨지므로(빈 네모) macOS 기본 한글 폰트로 지정한다. AppleGothic 단독으로는 í/ó/ñ 같은 라틴
+# 악센트 글리프가 없어 해외 선수 이름에서 글자가 통째로 빠지므로(TS-005), 폴백 폰트를 같이 지정한다.
+plt.rcParams["font.family"] = ["AppleGothic", "Arial Unicode MS"]
 plt.rcParams["axes.unicode_minus"] = False
 
 scouting_service = ScoutingService()

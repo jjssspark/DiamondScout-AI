@@ -4,6 +4,8 @@
 
 ## 데모
 
+![투수 모드 데모](output/screenshots/pitcher-mode-demo.gif)
+
 - **바로 써보기**: https://579528e032e770b0ca.gradio.live
   - Gradio `share=True` 임시 터널 링크입니다 (최대 1주일, 로컬 실행 중일 때만 유효). 접속이 안 되면 아래 [로컬 실행](#로컬-실행)으로 직접 띄워서 확인해주세요.
 - 투수 모드 / 타자 모드 모두 **4단계 위저드**(매치업 → 상황판 → 베이스&스코어 → 작전지시)로 진행되며, 상단 칩을 눌러 원하는 단계로 바로 이동할 수 있습니다.
@@ -101,3 +103,5 @@ python app.py
 ## 더 읽을거리
 
 - [PRD (제품 요구사항 정의서)](docs/PRD.md) — 서비스 컨셉, 전체 기능 명세, 리포트 형식 등 상세 스펙
+- [ADR (아키텍처 결정 기록)](docs/ADR.md) — RandomForest vs LSTM, RAG+Ollama, Gradio 등 주요 기술 선택의 맥락과 근거
+- [TROUBLESHOOTING](TROUBLESHOOTING.md) — 개발 중 겪은 버그·환경 이슈와 원인 추적 과정
