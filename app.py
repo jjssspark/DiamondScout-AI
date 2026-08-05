@@ -1072,6 +1072,8 @@ def run_pitcher_analysis(
     )
 
     # 투수 모드: 우리팀 = 투수팀이므로 우리팀 기준 점수차가 곧 모델이 쓰는 "투수팀 기준" score_diff다.
+    if our_score is None or opponent_score is None:
+        raise gr.Error("점수를 입력해주세요.")
     our_score, opponent_score = int(our_score), int(opponent_score)
     user_score_diff = our_score - opponent_score
     model_score_diff = user_score_diff
@@ -1154,6 +1156,8 @@ def run_batter_analysis(
 
     # 타자 모드: 우리팀 = 타자팀. 모델 context의 score_diff는 "투수팀(=상대팀) 기준"이므로 부호를
     # 반전해서 넘긴다. 사용자에게 보여줄 때는 항상 우리팀 기준(user_score_diff)을 쓴다.
+    if our_score is None or opponent_score is None:
+        raise gr.Error("점수를 입력해주세요.")
     our_score, opponent_score = int(our_score), int(opponent_score)
     user_score_diff = our_score - opponent_score
     model_score_diff = opponent_score - our_score
@@ -1361,6 +1365,48 @@ CUSTOM_CSS = """
 .ds-panel-title { color: #c8102e; border-color: #c8102e; }
 .ds-board-title { color: #14203c; border-color: #14203c; }
 .ds-qa-title { color: #14203c; border-color: #c8102e; }
+/* ===== Instant Scout Q&A — 실제 메신저처럼 보이는 채팅 UI ===== */
+.ds-qa-chips { flex-wrap: wrap !important; gap: 8px !important; margin-bottom: 10px !important; }
+.ds-qa-chips button {
+    background: #f7f5ef !important; color: #14203c !important; border: 1.5px solid #e6e1d3 !important;
+    border-radius: 999px !important; font-size: 13px !important; font-weight: 600 !important;
+    padding: 6px 14px !important; box-shadow: none !important; min-width: unset !important; flex: 0 0 auto !important;
+}
+.ds-qa-chips button:hover { border-color: #c8102e !important; color: #c8102e !important; }
+.ds-chatbot { border-radius: 14px !important; border: 1px solid #e6e1d3 !important; overflow: hidden !important; }
+.ds-chatbot .bubble-wrap, .ds-chatbot .panel-wrap { background: #f7f5ef !important; padding: 14px !important; }
+.ds-chatbot .message-row { margin: 6px 0 !important; }
+.ds-chatbot .avatar-container { display: none !important; }
+/* 사용자 말풍선: 오른쪽 정렬 + 브랜드 네이비, 상대(봇) 말풍선: 왼쪽 정렬 + 흰 카드.
+   실제 말풍선 배경은 .bubble.user-row(행 전체)가 아니라 그 안의 .message.user 요소에 칠해져 있다
+   (Gradio 6.19 DOM 확인: <div class="user message">). 행에 배경을 줘도 안 보이는 이유였다. */
+.ds-chatbot .message.user {
+    background: #14203c !important; border: none !important; border-radius: 16px 16px 4px 16px !important;
+    padding: 10px 14px !important; max-width: 82% !important;
+}
+.ds-chatbot .message.user, .ds-chatbot .message.user * { color: #ffffff !important; }
+.ds-chatbot .message.bot {
+    background: #ffffff !important; border: 1px solid #e6e1d3 !important; border-radius: 16px 16px 16px 4px !important;
+    padding: 10px 14px !important; max-width: 82% !important;
+    box-shadow: 0 1px 4px rgba(20,32,60,0.08) !important;
+}
+.ds-chatbot .message.bot, .ds-chatbot .message.bot * { color: #14203c !important; }
+/* 입력 줄: 알약 모양 입력창 + 원형 전송 버튼, 메신저 하단 바처럼 */
+.ds-qa-input-row {
+    align-items: center !important; gap: 8px !important; margin-top: 10px !important;
+    background: #f7f5ef !important; border: 1.5px solid #e6e1d3 !important; border-radius: 999px !important;
+    padding: 4px 4px 4px 16px !important;
+}
+.ds-qa-input-row textarea, .ds-qa-input-row input {
+    background: transparent !important; border: none !important; box-shadow: none !important;
+    padding: 8px 0 !important;
+}
+.ds-btn-send {
+    background: #c8102e !important; color: #ffffff !important; border: none !important;
+    border-radius: 999px !important; min-width: 64px !important; font-weight: 700 !important;
+    box-shadow: none !important;
+}
+.ds-btn-send:hover { background: #a00c24 !important; }
 /* 전략 리포트 아코디언 — 본문은 기본 마크다운 검정 텍스트 대신 브랜드 컬러 위계를 따른다 */
 .ds-report-accordion {
     border: 1px solid #e6e1d3 !important; border-radius: 12px !important; background: #fbfaf6 !important;
@@ -1473,6 +1519,10 @@ CUSTOM_CSS = """
     font-weight: 800 !important; box-shadow: 0 4px 10px rgba(20,32,60,0.28) !important;
 }
 .ds-btn-next:hover { box-shadow: 0 6px 16px rgba(20,32,60,0.4) !important; transform: translateY(-1px); }
+/* STEP 4(마지막 스텝)에서는 '다음' 버튼을 숨긴다. Python에서 두 버튼의 visible=을 함께 토글하면
+   간헐적으로 갱신이 누락되는 문제가 있어(위 _analyze_btn_update 설명 참고), '분석 실행'이 보일 때
+   CSS 형제 선택자로 '다음'을 숨기는 방식으로 대체했다. */
+.ds-btn-analyze:not(.hidden) ~ .ds-btn-next { display: none !important; }
 .ds-btn-prev, .ds-btn-reset {
     background: transparent !important; color: #6b6555 !important; border: 1.5px solid #ddd8ca !important;
     box-shadow: none !important; font-weight: 700 !important;
@@ -1494,6 +1544,15 @@ CUSTOM_CSS = """
    transparent로 둬도 뒤에서 베이지색이 비쳐 보였다. 래퍼 배경을 투명화해 카드(.ds-board)의
    흰 배경이 그대로 보이게 한다. (Gradio 6.19.0 기준, 버전 업그레이드 시 DOM 구조 변경 여부 재확인 필요) */
 .styler:has(> .ds-btn-pdf) { background: transparent !important; }
+/* PDF 다운로드 박스: 기본 Gradio File은 큰 드롭존으로 보여 어색하다. 생성 후에만 노출되므로
+   얇은 링크형 카드로 축소한다. */
+.ds-pdf-file { margin-top: 8px !important; }
+.ds-pdf-file .upload-container, .ds-pdf-file .empty { min-height: unset !important; padding: 0 !important; }
+.ds-pdf-file button.reset-button, .ds-pdf-file .icon-buttons { display: none !important; }
+.ds-pdf-file a, .ds-pdf-file .file-name, .ds-pdf-file [data-testid="file"] {
+    background: #f7f5ef !important; border: 1.5px solid #14203c !important; border-radius: 10px !important;
+    padding: 10px 14px !important; font-weight: 700 !important; color: #14203c !important;
+}
 /* 입력 컴포넌트 라벨/텍스트 가독성 */
 .gradio-container label span, .gradio-container .label-wrap span { font-size: 16.5px !important; }
 /* STRIKE ZONE BOARD 카드 (내부 SVG 히트맵 자체 색상은 별도 보정) */
@@ -1590,9 +1649,15 @@ CUSTOM_CSS = """
     color: #c8102e; font-weight: 800; font-size: 15px; letter-spacing: 0.1em; margin: 18px 0 2px;
 }
 
-/* ===== 결과 화면 벤토 그리드 ===== */
-.ds-bento { display: grid !important; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 0; }
-.ds-bento-wide { grid-column: 1 / -1 !important; }
+/* ===== 결과 화면 코칭 보드 레이아웃 ===== */
+/* 코칭 보드 재정리: 추천 구종/존 보드는 전체 폭 하이라이트, 위험도·상대 패턴은 보조 2열 정보로 분리 */
+.ds-quick-row { display: grid !important; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 0; }
+@media (max-width: 639px) { .ds-quick-row { grid-template-columns: 1fr; } }
+.ds-board-section-title { margin: 18px 0 8px 0 !important; }
+.ds-board-section-title h4 {
+    font-size: 15px !important; font-weight: 800 !important; color: #14203c !important;
+    letter-spacing: 0.02em; border-left: 4px solid #c8102e; padding-left: 10px; margin: 0 !important;
+}
 
 /* ===== 카운트/이닝 시각화 스코어보드 (STEP 2, 원시 입력값을 읽기 쉽게 재표시) ===== */
 .ds-count-board {
@@ -1611,7 +1676,6 @@ CUSTOM_CSS = """
 @media (min-width: 1280px) {
     .ds-matchup-panel { display: flex; }
     .ds-wizard-row { align-items: stretch !important; }
-    .ds-bento { grid-template-columns: repeat(4, 1fr); }
 }
 @media (max-width: 639px) {
     /* flex:1 인 버튼은 기본 min-width:auto 때문에 텍스트 폭 밑으로 줄어들지 않아, 4개를 한 줄에
@@ -1806,7 +1870,10 @@ def _step_dot_updates(step: int):
 
 
 def _analyze_btn_update(step: int):
-    """분석 실행 버튼은 마지막 스텝(STEP 4)에서만 노출한다."""
+    """분석 실행 버튼은 마지막 스텝(STEP 4)에서만 노출한다.
+    '다음' 버튼은 별도 visible= 토글 대신, 이 버튼이 보일 때 CSS 형제 선택자(.ds-btn-analyze:not(.hidden) ~
+    .ds-btn-next)로 숨긴다 — 두 버튼의 visible=을 같은 이벤트에 함께 토글하면 두 번째 전환부터
+    간헐적으로 갱신이 반영되지 않는 문제가 있었다(아래 _step_prev 설명과 동일한 Gradio 이슈)."""
     return gr.Button(visible=int(step) == 4)
 
 
@@ -1941,10 +2008,17 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                     )
 
             # 다음/이전/분석 버튼은 스텝 카드 밖, 항상 마운트된 컨트롤바에 둔다.
+            # analyze -> next 순서로 배치: '다음' 버튼은 별도 visible= 토글 없이, analyze가 보일 때
+            # CSS 형제 선택자(.ds-btn-analyze:not(.hidden) ~ .ds-btn-next)로 숨긴다.
             with gr.Row():
                 p_prev_btn = gr.Button("⬅ 이전", elem_classes=["ds-btn-prev"])
+                # 초기값은 visible=True로 두고 아래 demo.load()에서 실제 이벤트로 한 번 False로 되돌린다.
+                # STEP1~3에서 처음 STEP4로 넘어갈 때 이 버튼의 visible=이 False->True로 바뀌는 첫 전환이
+                # 간헐적으로 화면에 반영되지 않는 문제가 있었는데(Gradio 컴포넌트가 Python 쪽 정적 초기값에서
+                # 한 번도 실제 업데이트를 거치지 않은 상태로 있다가 처음 값이 바뀔 때 발생), load 시점에
+                # 미리 한 번 실제 업데이트를 거치게 하면 이후 전환은 안정적으로 반영된다.
+                p_analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn-analyze"], visible=True)
                 p_next_btn = gr.Button("다음 ➡", elem_classes=["ds-btn-next"])
-                p_analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn-analyze"], visible=False)
 
             p_reset_btn = gr.Button("다시 분석", elem_classes=["ds-btn-reset"])
             p_status_output = gr.HTML()
@@ -1954,33 +2028,35 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 p_hand_output = gr.Markdown()
                 p_top3_output = gr.HTML()
 
-                with gr.Row(elem_classes=["ds-bento"]):
-                    with gr.Column():
-                        gr.Markdown("#### 추천 구종")
-                        p_recommend_card_output = gr.HTML()
-                    with gr.Column():
-                        gr.Markdown("#### 상대 타자 약점")
-                        p_batter_weakness_output = gr.HTML()
+                gr.Markdown("#### 🎯 추천 구종", elem_classes=["ds-board-section-title"])
+                p_recommend_card_output = gr.HTML()
+
+                with gr.Row(elem_classes=["ds-quick-row"]):
                     with gr.Column():
                         gr.Markdown("#### 위험도 카드")
                         p_risk_html_output = gr.HTML(label="위험도 요약")
-                    with gr.Column(elem_classes=["ds-bento-wide"]):
-                        gr.Markdown("#### STRIKE ZONE BOARD")
-                        p_hotcold_plot = gr.HTML()
+                    with gr.Column():
+                        gr.Markdown("#### 상대 타자 약점")
+                        p_batter_weakness_output = gr.HTML()
+
+                gr.Markdown("#### STRIKE ZONE BOARD", elem_classes=["ds-board-section-title"])
+                p_hotcold_plot = gr.HTML()
 
                 with gr.Accordion("상세 리포트 전체 보기 (근거 · 참고 데이터)", open=False, elem_classes=["ds-report-accordion"]):
                     p_report_output = gr.Markdown(elem_classes=["ds-report-md"])
                 p_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
-                p_pdf_file_output = gr.File(label="다운로드 파일")
+                # 초기값은 visible=True로 두고 demo.load()에서 실제 이벤트로 한 번 False로 되돌린다.
+                # (분석 실행 버튼과 동일한 이유 — Gradio 첫 visible= 전환 누락 버그 회피)
+                p_pdf_file_output = gr.File(label="다운로드 파일", visible=True, elem_classes=["ds-pdf-file"])
 
             with gr.Group(elem_classes=["ds-qa-panel"], visible=False) as p_qa_group:
                 gr.HTML('<div class="ds-qa-title">Instant Scout Q&A</div>')
-                with gr.Row():
+                with gr.Row(elem_classes=["ds-qa-chips"]):
                     p_example_btns = [gr.Button(q, size="sm") for q in EXAMPLE_QUESTIONS]
-                p_chatbot = gr.Chatbot(label="투수 모드 Q&A", height=300)
-                with gr.Row():
-                    p_chat_input = gr.Textbox(label="", placeholder="분석 결과에 대해 질문해보세요", scale=4)
-                    p_chat_send_btn = gr.Button("전송", scale=1)
+                p_chatbot = gr.Chatbot(label="투수 모드 Q&A", show_label=False, height=340, elem_classes=["ds-chatbot"])
+                with gr.Row(elem_classes=["ds-qa-input-row"]):
+                    p_chat_input = gr.Textbox(label="", placeholder="분석 결과에 대해 질문해보세요", scale=4, container=False)
+                    p_chat_send_btn = gr.Button("전송", scale=1, elem_classes=["ds-btn-send"])
 
             p_result_state = gr.State(None)
 
@@ -2002,7 +2078,11 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
             ).then(
                 fn=lambda: gr.Group(visible=True), outputs=[p_qa_group],
             )
-            p_pdf_btn.click(fn=generate_pdf, inputs=[p_result_state], outputs=[p_pdf_file_output])
+            p_pdf_btn.click(
+                fn=generate_pdf, inputs=[p_result_state], outputs=[p_pdf_file_output],
+            ).then(
+                fn=lambda: gr.File(visible=True), outputs=[p_pdf_file_output],
+            )
 
             p_wizard_outputs = [p_wizard_tabs, p_step_state, p_chip1, p_chip2, p_chip3, p_chip4, p_analyze_btn]
             p_matchup_inputs = [p_pitcher_id_input, p_batter_id_input]
@@ -2095,8 +2175,8 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
 
             with gr.Row():
                 b_prev_btn = gr.Button("⬅ 이전", elem_classes=["ds-btn-prev"])
+                b_analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn-analyze"], visible=True)
                 b_next_btn = gr.Button("다음 ➡", elem_classes=["ds-btn-next"])
-                b_analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn-analyze"], visible=False)
 
             b_reset_btn = gr.Button("다시 분석", elem_classes=["ds-btn-reset"])
             b_status_output = gr.HTML()
@@ -2106,33 +2186,33 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 b_hand_output = gr.Markdown()
                 b_top3_output = gr.HTML()
 
-                with gr.Row(elem_classes=["ds-bento"]):
-                    with gr.Column():
-                        gr.Markdown("#### 노릴 코스 / 대응 전략")
-                        b_recommend_card_output = gr.HTML()
-                    with gr.Column():
-                        gr.Markdown("#### 상대 투수 패턴")
-                        b_pitcher_pattern_output = gr.HTML()
+                gr.Markdown("#### 🎯 노릴 코스 / 대응 전략", elem_classes=["ds-board-section-title"])
+                b_recommend_card_output = gr.HTML()
+
+                with gr.Row(elem_classes=["ds-quick-row"]):
                     with gr.Column():
                         gr.Markdown("#### 위험도 카드")
                         b_risk_html_output = gr.HTML(label="위험도 요약")
-                    with gr.Column(elem_classes=["ds-bento-wide"]):
-                        gr.Markdown("#### STRIKE ZONE BOARD")
-                        b_hotcold_plot = gr.HTML()
+                    with gr.Column():
+                        gr.Markdown("#### 상대 투수 패턴")
+                        b_pitcher_pattern_output = gr.HTML()
+
+                gr.Markdown("#### STRIKE ZONE BOARD", elem_classes=["ds-board-section-title"])
+                b_hotcold_plot = gr.HTML()
 
                 with gr.Accordion("상세 리포트 전체 보기 (근거 · 참고 데이터)", open=False, elem_classes=["ds-report-accordion"]):
                     b_report_output = gr.Markdown(elem_classes=["ds-report-md"])
                 b_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
-                b_pdf_file_output = gr.File(label="다운로드 파일")
+                b_pdf_file_output = gr.File(label="다운로드 파일", visible=True, elem_classes=["ds-pdf-file"])
 
             with gr.Group(elem_classes=["ds-qa-panel"], visible=False) as b_qa_group:
                 gr.HTML('<div class="ds-qa-title">Instant Scout Q&A</div>')
-                with gr.Row():
+                with gr.Row(elem_classes=["ds-qa-chips"]):
                     b_example_btns = [gr.Button(q, size="sm") for q in EXAMPLE_QUESTIONS]
-                b_chatbot = gr.Chatbot(label="타자 모드 Q&A", height=300)
-                with gr.Row():
-                    b_chat_input = gr.Textbox(label="", placeholder="분석 결과에 대해 질문해보세요", scale=4)
-                    b_chat_send_btn = gr.Button("전송", scale=1)
+                b_chatbot = gr.Chatbot(label="타자 모드 Q&A", show_label=False, height=340, elem_classes=["ds-chatbot"])
+                with gr.Row(elem_classes=["ds-qa-input-row"]):
+                    b_chat_input = gr.Textbox(label="", placeholder="분석 결과에 대해 질문해보세요", scale=4, container=False)
+                    b_chat_send_btn = gr.Button("전송", scale=1, elem_classes=["ds-btn-send"])
 
             b_result_state = gr.State(None)
 
@@ -2154,7 +2234,11 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
             ).then(
                 fn=lambda: gr.Group(visible=True), outputs=[b_qa_group],
             )
-            b_pdf_btn.click(fn=generate_pdf, inputs=[b_result_state], outputs=[b_pdf_file_output])
+            b_pdf_btn.click(
+                fn=generate_pdf, inputs=[b_result_state], outputs=[b_pdf_file_output],
+            ).then(
+                fn=lambda: gr.File(visible=True), outputs=[b_pdf_file_output],
+            )
 
             b_wizard_outputs = [b_wizard_tabs, b_step_state, b_chip1, b_chip2, b_chip3, b_chip4, b_analyze_btn]
             b_matchup_inputs = [b_batter_id_input, b_pitcher_id_input]
@@ -2185,6 +2269,14 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
     landing_start_btn.click(
         fn=lambda: (gr.Column(visible=False), gr.Tabs(visible=True)),
         outputs=[landing_view, main_tabs],
+    )
+
+    demo.load(
+        fn=lambda: (
+            gr.Button(visible=False), gr.Button(visible=False),
+            gr.File(visible=False), gr.File(visible=False),
+        ),
+        outputs=[p_analyze_btn, b_analyze_btn, p_pdf_file_output, b_pdf_file_output],
     )
 
 
