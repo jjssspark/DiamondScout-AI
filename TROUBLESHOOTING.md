@@ -19,6 +19,7 @@
 
 | ID | 날짜 | 영역 | 문제 | 심각도 | 상태 |
 |---|---|---|---|---|---|
+| TS-006 | 2026-08-05 | Infra | 공개 데모 배포처로 고른 Hugging Face Spaces가 생성 시점에 402 반환 — Gradio Space 무료 티어가 PRO 전용으로 바뀌어 있었음 | High | 해결됨 |
 | TS-005 | 2026-08-05 | Build | PDF 리포트에서 해외 선수 이름의 라틴 악센트 문자(í/ó/ñ 등)가 통째로 빠짐 — AppleGothic 단독 지정의 글리프 커버리지 부족 | Medium | 해결됨 |
 | TS-004 | 2026-08-05 | FE | Instant Scout Q&A 채팅 버블 배경색 CSS가 안 먹힘 — 정적 CSS 파일 기준 클래스 가정이 실제 렌더링 DOM과 다름 | Low | 해결됨 |
 | TS-003 | 2026-08-05 | FE | STEP4 "분석 실행" 버튼이 새로고침 직후 첫 방문에서 100% 사라짐 — Gradio 컴포넌트의 "첫 visible= 전환" 렌더링 누락 | High | 해결됨 |
@@ -32,6 +33,83 @@
 ---
 
 ## 기록
+
+## TS-006 · 공개 데모 배포처로 고른 Hugging Face Spaces가 생성 시점에 402 반환 — Gradio Space 무료 티어가 PRO 전용으로 바뀌어 있었음
+
+| | |
+|---|---|
+| **날짜** | 2026-08-05 |
+| **영역** | Infra |
+| **심각도** | High |
+| **상태** | 해결됨 |
+| **소요 시간** | 약 1시간 (플랫폼 조사·재선정·모델 축소 포함) |
+
+### 증상
+포트폴리오용 공개 데모 링크를 만들기 위해 Hugging Face Spaces에 Gradio Space를 생성하는 시점에서 실패했다. 배포 번들(207MB)을 준비하고 CLI 로그인까지 끝낸 뒤였다:
+```
+402 Client Error: Payment Required
+Static Spaces are free for everyone, but hosting Gradio and Docker Spaces on free cpu-basic requires a PRO subscription.
+```
+
+### 재현 조건
+- 환경: 무료(비PRO) Hugging Face 계정, `hf` CLI 로그인 완료 상태
+- 재현 절차: `create_repo(repo_type="space", space_sdk="gradio")` 호출
+- 재현율: 항상
+
+### 원인
+- **표면**: 무료 계정으로 Gradio Space를 만들 권한이 없음
+- **근본(확인됨)**: Hugging Face가 무료 cpu-basic 하드웨어에서 Gradio·Docker Space 호스팅을 PRO 구독 전용으로 전환했고, 무료로 남은 건 Static Space뿐이다. 이 프로젝트는 서버 사이드 파이썬 추론이 필수라 Static Space로는 대체가 불가능하다.
+- **잘못 세웠던 전제**: "Gradio 앱이면 HF Spaces 무료 티어가 표준 선택지"라는 전제로 배포처를 먼저 정하고 번들부터 만들었다. **배포처의 현재 무료 조건을 확인하기 전에 준비 작업을 시작한 것**이 실제 손실 원인이었다.
+
+### 시도했지만 안 된 것
+| 시도 | 결과 | 왜 안 됐는가 |
+|---|---|---|
+| `huggingface-cli login` (시스템 파이썬) | `TypeError: type 'Choice' is not subscriptable` | 시스템 파이썬의 click/typer 버전 조합이 맞지 않음. 프로젝트 venv(click 8.4.2 / typer 0.25.1)에서는 정상 |
+| `huggingface-cli` 사용 | 폐기 경고 후 동작 안 함 | `hf`로 대체됨. `hf auth login`은 토큰 붙여넣기가 아니라 OAuth 디바이스 플로우 |
+| Gradio Space 생성 | 402 Payment Required | 위 근본 원인 |
+
+### 해결
+배포처를 **Render 무료 티어**(512MB RAM / 0.1 CPU, 카드 불필요, Python 자동 감지)로 교체하고, 그 메모리 한도에 맞게 배포판을 줄였다.
+
+1. **의존성 축소** — `requirements-deploy.txt`에서 tensorflow·pybaseball 외에 faiss-cpu·sentence-transformers도 제외. RAG 검색 결과(`context_chunks`)가 `db_save_qa_log()`에만 전달되고 `coach_agent.answer()`에는 들어가지 않는 것을 코드에서 확인했기 때문이다. 없으면 `app.py`의 기존 try/except가 `rag_service=None`으로 정상 degrade 한다.
+2. **모델 축소** — 후보 4개를 추측 없이 실제로 학습해 측정(`scripts/compare_model_sizes.py`):
+
+   | 설정 | 트리/깊이/리프 | 크기 | top-1 | top-3 |
+   |---|---|---|---|---|
+   | 현재값 | 150 / 16 / 30 | 188.0MB | 39.54% | 78.75% |
+   | **채택** | 80 / 14 / 80 | **38.3MB** | 38.99% | 77.42% |
+   | 공격적 | 60 / 12 / 150 | 13.5MB | 38.65% | 76.14% |
+   | 최대 | 40 / 10 / 300 | 3.8MB | 38.08% | 74.40% |
+
+   원본 모델은 그대로 두고 배포 전용 아티팩트만 따로 만들어(`scripts/train_deploy_model.py`), 문서에 기재된 대표 성능 수치는 원본 기준으로 유지했다. `PITCH_MODEL_FILE` 환경변수로 로드 대상을 선택한다.
+3. **포트 바인딩** — `app.py`가 `PORT` 환경변수를 읽도록 변경(Render가 주입).
+
+### 검증
+배포판과 동일한 의존성만 설치한 깨끗한 venv에서 앱을 임포트해 실측했다:
+```
+[경고] RAGService 초기화 실패, 도메인 문서 검색 없이 진행합니다: No module named 'faiss'
+[경고] .env에 DB_HOST/DB_PORT/DB_USER/DB_NAME이 설정되지 않아 DB 로깅을 사용하지 않습니다.
+
+[측정] 임포트+UI 구성 12.1s
+[측정] 최대 RSS 359 MB
+```
+- 최대 RSS 350~360MB로 512MB 한도 대비 약 150MB 여유 확인
+- faiss 부재·DB 부재 모두 앱을 죽이지 않고 degrade 하는 것 확인
+- 번들 총 57MB(앱 + 데이터 19MB + 모델 38MB), 테스트 14건 통과
+
+### 추후 관리
+- **재발 방지**: 배포처를 정하기 전에 **그 시점의 무료 티어 조건을 먼저 확인**한다. 플랫폼 무료 정책은 자주 바뀐다.
+- **모니터링**: Render 무료 인스턴스는 15분 무활동 시 슬립 → 첫 요청 콜드 스타트가 발생한다. 데모 링크 옆에 안내 문구가 필요하다.
+- **남은 리스크**: 실측 RSS는 앱 기동 직후 기준이다. 분석 실행 시 matplotlib figure·PDF 생성으로 추가 점유가 생기므로, 실제 배포 후 OOM이 나면 더 작은 모델(13.5MB, top-3 76.1%)로 한 단계 더 내릴 수 있다.
+- **후속 작업**: Groq API 키 발급(로그인 이슈로 미해결). 키가 없으면 Q&A는 규칙 기반으로만 답한다.
+
+### 배운 점
+번들 준비·CLI 로그인·의존성 정리까지 다 끝낸 뒤에야 "그 플랫폼에 무료로 올릴 수 있는가"라는 가장 앞단 제약에 막혔다. 배포 작업의 순서는 *번들 준비 → 배포처 선정*이 아니라 **배포처의 현재 제약 확인 → 그 제약에 맞춘 번들 준비**여야 한다. 다만 이 실패 덕분에 메모리 한도라는 강제 제약이 생겼고, 그 과정에서 RAG가 답변 생성에 실제로는 쓰이지 않는다는 사실과 모델을 4.9배 줄여도 정확도 손실이 0.55%p뿐이라는 사실을 측정으로 확인했다.
+
+### 참고
+- Render 무료 티어(2026-08 확인): 512MB RAM / 0.1 CPU, 월 750시간, 카드 불필요, 15분 무활동 시 슬립
+
+---
 
 ## TS-005 · PDF 리포트에서 해외 선수 이름의 라틴 악센트 문자(í/ó/ñ 등)가 통째로 빠짐 — AppleGothic 단독 지정의 글리프 커버리지 부족
 
