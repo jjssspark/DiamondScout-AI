@@ -14,6 +14,10 @@ import pandas as pd
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# 무료 티어(512MB) 배포판은 축소 학습한 next_pitch_model_deploy.joblib을 쓴다.
+# 번들 스키마가 같아 파일명만 바꿔 끼우면 되므로 환경변수로 선택한다(scripts/train_deploy_model.py).
+PITCH_MODEL_FILE = os.environ.get("PITCH_MODEL_FILE", "next_pitch_model.joblib")
+
 # next_pitch_dataset_{year}.csv의 현재 상황 feature와 동일한 순서/이름을 따른다.
 CONTEXT_COLS = [
     "balls", "strikes", "outs_when_up", "inning", "inning_topbot_enc",
@@ -49,7 +53,7 @@ class PredictionService:
         self.root_dir = root_dir
         self.id_to_label = self._load_label_mapping()
 
-        rf_bundle = joblib.load(os.path.join(root_dir, "models", "next_pitch_model.joblib"))
+        rf_bundle = joblib.load(os.path.join(root_dir, "models", PITCH_MODEL_FILE))
         self.rf_model = rf_bundle["model"]
         self.feature_cols = rf_bundle["feature_cols"]
 

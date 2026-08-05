@@ -26,15 +26,22 @@ build/
 # 산출물
 output/*
 !output/screenshots/
+reports/
 uploads/
 *.zip
 *.log
 
 # 대용량 데이터·모델 (git 저장소 무게 관리, GitHub 100MB 제한)
-data/
+data/raw/
+data/processed/next_pitch_dataset_*.csv
+data/processed/model_outputs/
 models/*.joblib
 models/*.keras
 docs/*.pdf
+
+# 배포판(Render 무료 티어)이 런타임에 읽어야 하므로 축소 모델만 예외로 추적한다.
+# 원본 모델(188MB)은 계속 제외 - scripts/train_deploy_model.py로 재현한다.
+!models/next_pitch_model_deploy.joblib
 
 # Gradio 자동 생성 캐시
 .gradio/

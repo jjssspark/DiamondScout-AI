@@ -1,0 +1,11 @@
+role,id,name,hand,pitch_count,top3_summary,display_label
+pitcher,607074,"Rodón, Carlos",L,3214,FF 42%/SL 28%/CH 16%,"607074 | Rodón, Carlos | L | 3214구 | FF 42%/SL 28%/CH 16%"
+pitcher,657277,"Webb, Logan",R,3204,SI 33%/ST 27%/CH 24%,"657277 | Webb, Logan | R | 3204구 | SI 33%/ST 27%/CH 24%"
+pitcher,676979,"Crochet, Garrett",L,3180,FF 36%/FC 27%/SI 16%,"676979 | Crochet, Garrett | L | 3180구 | FF 36%/FC 27%/SI 16%"
+pitcher,608331,"Fried, Max",L,3168,FC 28%/SI 18%/CU 18%,"608331 | Fried, Max | L | 3168구 | FC 28%/SI 18%/CU 18%"
+pitcher,642547,"Peralta, Freddy",R,3088,FF 53%/CH 21%/CU 12%,"642547 | Peralta, Freddy | R | 3088구 | FF 53%/CH 21%/CU 12%"
+batter,621566,,L,3071,,621566 | L | 3071구
+batter,656941,,L,3010,,656941 | L | 3010구
+batter,672695,,L,2949,,672695 | L | 2949구
+batter,646240,,L,2933,,646240 | L | 2933구
+batter,596019,,L,2894,,596019 | L | 2894구

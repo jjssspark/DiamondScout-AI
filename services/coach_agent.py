@@ -10,6 +10,7 @@ DiamondScout AI - CoachAgent: 대화형 Q&A 코치 에이전트
 """
 
 import json
+import os
 import re
 
 import requests
@@ -22,6 +23,14 @@ OLLAMA_AVAILABILITY_TIMEOUT_SECONDS = 1.5
 # 분석 요약 + 근거 JSON을 포함한 실제 프롬프트 기준 실측 15~20초 - 4초 같은 값은 매번
 # 타임아웃으로 이어져 LLM이 사실상 한 번도 안 쓰이는 결과를 낳는다(직접 측정으로 확인).
 OLLAMA_TIMEOUT_SECONDS = 25
+
+# LLM_BACKEND=ollama(기본, 로컬 개발)면 위 Ollama 설정을 그대로 쓴다. HF Spaces 등 Ollama를
+# 상시 구동할 수 없는 공개 데모 환경에서는 LLM_BACKEND=groq + GROQ_API_KEY로 Groq의 무료
+# 티어 hosted LLM을 대신 쓴다(ADR-0002 후속 결정 — 로컬 우선은 유지하되 배포판만 예외).
+LLM_BACKEND = os.environ.get("LLM_BACKEND", "ollama")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
+GROQ_TIMEOUT_SECONDS = 25
 
 KNOWN_PITCH_LABELS = ["FF", "SI", "SL", "CH", "ST", "FC", "CU", "FS", "KC", "SV", "OTHER"]
 BREAKING_BALL_LABELS = {"SL", "CH", "ST", "FC", "CU", "FS", "KC", "SV"}
@@ -133,9 +142,10 @@ def _normalize_history(history) -> list[dict]:
 
 
 class CoachAgent:
-    def __init__(self, ollama_host: str = OLLAMA_HOST, ollama_model: str = OLLAMA_MODEL):
+    def __init__(self, ollama_host: str = OLLAMA_HOST, ollama_model: str = OLLAMA_MODEL, llm_backend: str = LLM_BACKEND):
         self.ollama_host = ollama_host
         self.ollama_model = ollama_model
+        self.llm_backend = llm_backend
 
     # ------------------------------------------------------------------
     # 공개 진입점
@@ -388,13 +398,40 @@ class CoachAgent:
             raise ValueError("Ollama 응답이 비어 있음")
         return answer_text
 
+    def _call_groq(self, prompt: str) -> str:
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+            json={
+                "model": GROQ_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.7,
+            },
+            timeout=GROQ_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        answer_text = resp.json()["choices"][0]["message"]["content"].strip()
+        if not answer_text:
+            raise ValueError("Groq 응답이 비어 있음")
+        return answer_text
+
+    def _is_llm_available(self) -> bool:
+        if self.llm_backend == "groq":
+            return bool(GROQ_API_KEY)
+        return self._is_ollama_available()
+
+    def _call_llm(self, prompt: str) -> str:
+        if self.llm_backend == "groq":
+            return self._call_groq(prompt)
+        return self._call_ollama(prompt)
+
     def _generate_coach_response(self, message: str, focus: dict, evidence: dict, conv_state: dict) -> tuple[str, str]:
-        if self._is_ollama_available():
+        if self._is_llm_available():
             try:
                 prompt = self._build_prompt(message, focus, evidence, conv_state)
-                return self._call_ollama(prompt), "ollama"
+                return self._call_llm(prompt), self.llm_backend
             except (requests.RequestException, ValueError, KeyError) as exc:
-                print(f"[경고] Ollama 답변 생성 실패, evidence 기반 fallback으로 대체: {exc}")
+                print(f"[경고] {self.llm_backend} 답변 생성 실패, evidence 기반 fallback으로 대체: {exc}")
         return self._generate_fallback_answer(message, focus, evidence, conv_state, variant=0), "rule_based"
 
     # ------------------------------------------------------------------
@@ -612,7 +649,7 @@ class CoachAgent:
         if not self._is_repetitive(answer_text, last_answer):
             return answer_text, False
 
-        if source == "ollama":
+        if source in ("ollama", "groq"):
             try:
                 retry_prompt = self._build_prompt(
                     message, focus, evidence, conv_state,
@@ -622,11 +659,11 @@ class CoachAgent:
                         "추천 구종 요약으로 돌아가지 마라."
                     ),
                 )
-                retried = self._call_ollama(retry_prompt)
+                retried = self._call_llm(retry_prompt)
                 if not self._is_repetitive(retried, last_answer):
                     return retried, True
             except (requests.RequestException, ValueError, KeyError) as exc:
-                print(f"[경고] 반복 감지 후 Ollama 재생성 실패, 동적 fallback으로 대체: {exc}")
+                print(f"[경고] 반복 감지 후 {source} 재생성 실패, 동적 fallback으로 대체: {exc}")
 
         pivot = self._frame_repetition_complaint(focus, evidence, conv_state, variant=1)
         return pivot, True

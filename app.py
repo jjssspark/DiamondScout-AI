@@ -2282,8 +2282,11 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
 
 
 if __name__ == "__main__":
+    # 배포 플랫폼(Render 등)은 바인딩할 포트를 PORT 환경변수로 지정하고 자체 공개 URL을
+    # 제공한다. 그 환경에서는 Gradio share 터널이 불필요하므로 로컬 실행일 때만 켠다.
+    port = os.environ.get("PORT")
     demo.launch(
         server_name="0.0.0.0",
-        server_port=7862,
-        share=True
+        server_port=int(port) if port else 7862,
+        share=port is None,
     )
