@@ -1,0 +1,21 @@
+# Render 무료 인스턴스는 15분 무활동 시 슬립하고, 다시 깨우는 데 약 80초가 걸린다.
+# 포트폴리오 데모 링크를 눌렀을 때 빈 화면을 오래 보지 않도록 주기적으로 깨워둔다.
+# 슬립 임계값이 15분이지만 GitHub 크론은 실행이 수 분 밀릴 수 있어 10분 간격으로 여유를 둔다.
+name: keep-warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping demo
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 120 \
+            https://diamondscout-ai.onrender.com)
+          echo "HTTP $code"
+          # 슬립에서 깨어나는 중이면 502가 잠깐 뜰 수 있으므로 200만 성공으로 본다.
+          test "$code" = "200"
