@@ -88,6 +88,15 @@ python app.py
 - MariaDB 로그 저장을 쓰려면 `database/README.md`를 참고해 스키마를 먼저 생성하세요.
 - 기본 포트는 `7862`이며, `app.py` 실행 시 로컬 URL과 함께 공개 URL(`share=True`)이 콘솔에 출력됩니다.
 
+## 테스트
+
+```bash
+pip install pytest  # requirements.txt에 포함되어 있음
+pytest tests/ -v
+```
+
+`PredictionService`의 피처 조립(`build_feature_row`)과 Top-k 예측 로직을 검증합니다. `models/*.joblib`은 용량 문제로 저장소에 포함하지 않으므로(`.gitignore`), 모델 로딩은 mock으로 격리되어 있어 클론 직후에도 바로 실행됩니다.
+
 ## 프로젝트 구조
 
 ```text
@@ -105,3 +114,5 @@ python app.py
 - [PRD (제품 요구사항 정의서)](docs/PRD.md) — 서비스 컨셉, 전체 기능 명세, 리포트 형식 등 상세 스펙
 - [ADR (아키텍처 결정 기록)](docs/ADR.md) — RandomForest vs LSTM, RAG+Ollama, Gradio 등 주요 기술 선택의 맥락과 근거
 - [TROUBLESHOOTING](TROUBLESHOOTING.md) — 개발 중 겪은 버그·환경 이슈와 원인 추적 과정
+- [회고](docs/RETROSPECTIVE.md) — 다시 만든다면 무엇을 다르게 할지, 남겨둔 기술 부채
+- [성능·품질 지표](docs/PERFORMANCE.md) — 모델 정확도, 예측 응답 시간, Q&A 타임아웃 예산 실측치
