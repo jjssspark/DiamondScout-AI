@@ -14,7 +14,9 @@ SCENE_CELL_COUNT = 9
 
 # 엔진이 mount()에서 요구하는 DOM은 이 셋뿐이다. 하나라도 없으면 그리지 않고
 # 다음 프레임에 다시 본다(ui/static/scene.js의 mount 참고).
-_SCENE_JS_PATH = Path(__file__).resolve().parent / "static" / "scene.js"
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+# 순서가 중요하다. scene.js가 로드 시점에 window.__dsSceneConfig를 읽는다.
+_SCENE_JS_PARTS = ("scene-config.js", "scene.js")
 
 # 씬 엔진의 칸 이름 (ui/static/scene.js와 같은 순서). 라벨 자체는 엔진이 그리지만,
 # 여기 두면 변환이 맞는지 사람이 눈으로 대조할 수 있다.
@@ -106,4 +108,4 @@ def scene_engine_js() -> str:
     gr.HTML 안의 <script>는 innerHTML 경로라 실행이 보장되지 않으므로 head를 쓴다.
     다만 head는 앱 렌더 이전에 실행되므로 엔진이 DOM을 잡는 일은 mount()로 미뤄져 있다.
     """
-    return _SCENE_JS_PATH.read_text(encoding="utf-8")
+    return "\n".join((_STATIC_DIR / name).read_text(encoding="utf-8") for name in _SCENE_JS_PARTS)

@@ -949,10 +949,11 @@ gr.set_static_paths(paths=[Path(__file__).resolve().parent / "ui" / "static" / "
 
 # head= 로 넣는 이유: gr.HTML 안의 <script>는 innerHTML 경로라 실행이 보장되지 않는다.
 # 대신 head는 앱 렌더보다 먼저 돌기 때문에, 엔진은 DOM 잡는 일을 mount()로 미뤄 뒀다.
-with gr.Blocks(
-    title="DiamondScout AI", css=CUSTOM_CSS,
-    head=f"<script>{scene_engine_js()}</script>",
-) as demo:
+# Gradio 6에서 css/head는 Blocks가 아니라 launch()가 받는다. Blocks에 넘겨도 하위
+# 호환으로 동작하지만 경고가 뜨고 언젠가 끊긴다.
+SCENE_HEAD = f"<script>{scene_engine_js()}</script>"
+
+with gr.Blocks(title="DiamondScout AI") as demo:
     gr.HTML(HEADER_HTML)
 
     balls_state = gr.State(0)
@@ -1135,4 +1136,6 @@ if __name__ == "__main__":
         server_name="0.0.0.0",
         server_port=int(port) if port else 7862,
         share=port is None,
+        css=CUSTOM_CSS,
+        head=SCENE_HEAD,
     )
