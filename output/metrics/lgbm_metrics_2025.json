@@ -1,0 +1,16 @@
+{
+  "n_features": 88,
+  "best_iteration": 89,
+  "train_seconds": 140.59385775000192,
+  "model_size_mb": 9.888184547424316,
+  "validation": {
+    "top1_accuracy": 0.4401937799308881,
+    "top3_accuracy": 0.8606873409704552,
+    "n_samples": 89999
+  },
+  "test": {
+    "top1_accuracy": 0.4371172021622108,
+    "top3_accuracy": 0.8572648708180214,
+    "n_samples": 88983
+  }
+}

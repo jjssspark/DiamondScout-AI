@@ -8,6 +8,7 @@
 # scikit-learn은 모델을 직렬화한 버전과 반드시 일치해야 한다.
 gradio==6.19.0
 scikit-learn==1.9.0
+lightgbm==4.7.0
 joblib==1.5.3
 numpy==2.5.0
 pandas==3.0.3
