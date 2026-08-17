@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.feature_builders import (
     PRIOR_SHRINKAGE_K,
+    add_temporal_features,
     build_batter_matchup_features,
     build_count_prior,
     build_pitcher_prior,
@@ -122,3 +123,121 @@ def test_builders_do_not_mutate_inputs():
 
     pd.testing.assert_frame_equal(train, train_before)
     pd.testing.assert_frame_equal(profile, profile_before)
+
+
+# --- 시간 · 피로 피처 ---------------------------------------------------------
+
+
+def _game_df():
+    """한 경기, 투수 100. 타석 1(3구) -> 타석 2(2구)."""
+    return pd.DataFrame({
+        "game_pk": [1, 1, 1, 1, 1],
+        "pitcher": [100, 100, 100, 100, 100],
+        "batter":  [10, 10, 10, 20, 20],
+        "at_bat_number": [1, 1, 1, 2, 2],
+        "pitch_number": [1, 2, 3, 1, 2],
+        "pitch_label_id_lag1": [np.nan, 0.0, 0.0, 1.0, 0.0],
+        "prev_pitch_outcome": ["none", "ball", "ball", "foul", "called_strike"],
+    })
+
+
+def test_pitch_of_atbat_counts_within_at_bat():
+    result = add_temporal_features(_game_df())
+
+    assert list(result["pitch_of_atbat"]) == [1, 2, 3, 1, 2]
+
+
+def test_pitcher_pitch_count_accumulates_across_game():
+    result = add_temporal_features(_game_df())
+
+    assert list(result["pitcher_pitch_count_game"]) == [1, 2, 3, 4, 5]
+
+
+def test_is_first_pitch_of_ab_flags_only_first():
+    result = add_temporal_features(_game_df())
+
+    assert list(result["is_first_pitch_of_ab"]) == [1, 0, 0, 1, 0]
+
+
+def test_times_through_order_increments_on_batter_repeat():
+    df = pd.concat([_game_df(), pd.DataFrame({
+        "game_pk": [1], "pitcher": [100], "batter": [10],
+        "at_bat_number": [3], "pitch_number": [1],
+        "pitch_label_id_lag1": [1.0], "prev_pitch_outcome": ["none"],
+    })], ignore_index=True)
+
+    result = add_temporal_features(df)
+
+    assert result["times_through_order"].iloc[-1] == 2
+
+
+def test_same_pitch_streak_counts_consecutive_identical_lags():
+    result = add_temporal_features(_game_df())
+
+    # lag1이 [nan, 0, 0, 1, 0] -> 인덱스 2에서 0이 2연속
+    assert result["same_pitch_streak"].iloc[2] == 2
+    assert result["same_pitch_streak"].iloc[3] == 1
+
+
+def test_prev_pitch_outcome_is_encoded_as_int():
+    result = add_temporal_features(_game_df())
+
+    assert result["prev_pitch_outcome_enc"].dtype.kind in "iu"
+    assert result["prev_pitch_outcome_enc"].iloc[0] == 0  # "none"
+
+
+def test_counters_reset_between_games_and_pitchers():
+    """경기·투수 경계를 넘어 누적되면 불펜 투수가 선발의 투구수를 물려받는다."""
+    a = _game_df()
+    b = _game_df().assign(game_pk=2)
+    c = _game_df().assign(pitcher=200)
+
+    result = add_temporal_features(pd.concat([a, b, c], ignore_index=True))
+    counts = result.groupby(["game_pk", "pitcher"])["pitcher_pitch_count_game"].max()
+
+    assert set(counts) == {5}
+
+
+def test_streak_does_not_carry_across_pitchers():
+    """투수가 바뀌는 지점에서 연속 카운트는 1로 끊겨야 한다."""
+    first = _game_df()
+    second = _game_df().assign(pitcher=200, pitch_label_id_lag1=[0.0] * 5)
+
+    result = add_temporal_features(pd.concat([first, second], ignore_index=True))
+    boundary = result[result["pitcher"] == 200].iloc[0]
+
+    assert boundary["same_pitch_streak"] == 1
+
+
+def test_unknown_outcome_falls_back_instead_of_nan():
+    """새 이벤트 문자열이 들어와도 NaN이 되면 안 된다 - 모델 입력이 깨진다."""
+    df = _game_df()
+    df.loc[0, "prev_pitch_outcome"] = "catcher_interf"
+
+    result = add_temporal_features(df)
+
+    assert result["prev_pitch_outcome_enc"].iloc[0] == 7  # "other"
+
+
+def test_temporal_output_is_sorted_and_keeps_every_row():
+    """정렬을 바꿔 넣어도 결과는 경기/투수/타석/투구 순으로 나온다.
+    호출부가 위치 기준으로 컬럼을 붙이면 어긋나므로 순서를 못 박아 둔다."""
+    df = _game_df()
+    shuffled = df.iloc[[3, 0, 4, 2, 1]].reset_index(drop=True)
+
+    result = add_temporal_features(shuffled)
+    keys = ["game_pk", "pitcher", "at_bat_number", "pitch_number"]
+
+    assert len(result) == len(df)
+    pd.testing.assert_frame_equal(
+        result[keys], result[keys].sort_values(keys).reset_index(drop=True)
+    )
+
+
+def test_add_temporal_features_does_not_mutate_input():
+    df = _game_df()
+    before = df.copy()
+
+    add_temporal_features(df)
+
+    pd.testing.assert_frame_equal(df, before)

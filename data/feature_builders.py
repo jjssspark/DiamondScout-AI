@@ -86,6 +86,70 @@ def build_count_prior(
     return out
 
 
+OUTCOME_ENC = {
+    "none": 0,
+    "ball": 1,
+    "called_strike": 2,
+    "whiff": 3,
+    "foul": 4,
+    "in_play": 5,
+    "hit_by_pitch": 6,
+    "other": 7,
+}
+
+
+def add_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
+    """같은 경기 안에서의 누적 · 순서 피처를 추가한다.
+
+    모든 값은 '해당 투구를 던지기 직전'까지의 정보만 쓴다.
+    반환 프레임은 (game_pk, pitcher, at_bat_number, pitch_number) 순으로 정렬된
+    새 객체다 — 입력 순서를 보존하지 않으므로 호출부에서 위치 기준으로 붙이면 안 된다.
+    """
+    work = (
+        df.sort_values(["game_pk", "pitcher", "at_bat_number", "pitch_number"])
+        .reset_index(drop=True)
+        .copy()
+    )
+
+    by_pitcher = work.groupby(["game_pk", "pitcher"], sort=False)
+    by_atbat = work.groupby(["game_pk", "pitcher", "at_bat_number"], sort=False)
+
+    work["pitch_of_atbat"] = by_atbat.cumcount() + 1
+    work["is_first_pitch_of_ab"] = (work["pitch_of_atbat"] == 1).astype(int)
+    work["pitcher_pitch_count_game"] = by_pitcher.cumcount() + 1
+
+    # 타순 순회: 같은 (경기, 투수)에서 그 타자를 몇 번째 상대하는가.
+    first = work[work["is_first_pitch_of_ab"] == 1].copy()
+    first["tto"] = first.groupby(["game_pk", "pitcher", "batter"]).cumcount() + 1
+    work = work.merge(
+        first[["game_pk", "pitcher", "at_bat_number", "tto"]],
+        on=["game_pk", "pitcher", "at_bat_number"],
+        how="left",
+    )
+    work["times_through_order"] = work["tto"].fillna(1).astype(int)
+    work = work.drop(columns=["tto"])
+
+    # 같은 구종 연속 횟수: lag1이 직전 행과 같고 같은 (경기, 투수)면 누적.
+    # 투수가 바뀌면 끊는다 — 이어 붙이면 불펜이 선발의 연속 기록을 물려받는다.
+    lag1 = work["pitch_label_id_lag1"].to_numpy(dtype=float)
+    same_group = (
+        work[["game_pk", "pitcher"]].shift() == work[["game_pk", "pitcher"]]
+    ).all(axis=1).to_numpy()
+    same_value = np.zeros(len(work), dtype=bool)
+    same_value[1:] = (lag1[1:] == lag1[:-1]) & ~np.isnan(lag1[1:])
+    continues = same_group & same_value
+
+    streak = np.ones(len(work), dtype=int)
+    for i in np.flatnonzero(continues):
+        streak[i] = streak[i - 1] + 1
+    work["same_pitch_streak"] = streak
+
+    work["prev_pitch_outcome_enc"] = (
+        work["prev_pitch_outcome"].map(OUTCOME_ENC).fillna(OUTCOME_ENC["other"]).astype(int)
+    )
+    return work
+
+
 def build_batter_matchup_features(
     train_df: pd.DataFrame, raw_profile: pd.DataFrame
 ) -> pd.DataFrame:
