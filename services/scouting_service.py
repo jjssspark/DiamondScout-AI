@@ -190,7 +190,14 @@ class ScoutingService:
         if request.mode not in ("pitcher", "batter"):
             raise ValueError(f"알 수 없는 mode: {request.mode!r} (pitcher 또는 batter만 지원)")
 
-        full_proba = self.prediction_service.predict_full_proba(request.context, request.recent_pitches)
+        # LightGBM 백엔드는 투수/타자 prior를 조회해 피처로 쓴다. 두 키는 CONTEXT_COLS에
+        # 없어 모델 피처가 되지 않고 조회 키로만 쓰인다. 안 넘기면 조용히 리그 평균으로
+        # 떨어지는데, prior가 모델 gain의 81%라 사실상 개선분이 전부 사라진다.
+        model_context = {
+            **request.context, "pitcher": request.pitcher_id, "batter": request.batter_id,
+        }
+
+        full_proba = self.prediction_service.predict_full_proba(model_context, request.recent_pitches)
         interpretation = self._interpret_user_comment(request.user_comment)
 
         # 모델의 원 예측 확률만으로는 pitcher_id/batter_id/카운트 성향이 충분히 반영되지 않아
@@ -207,7 +214,7 @@ class ScoutingService:
                 request.pitcher_id, request.context, full_proba, interpretation
             )
         top3 = sorted(composite_scores.items(), key=lambda kv: kv[1], reverse=True)[:3]
-        model_top3 = self.prediction_service.predict_top_k(request.context, request.recent_pitches, k=3)
+        model_top3 = self.prediction_service.predict_top_k(model_context, request.recent_pitches, k=3)
 
         result = {
             "predicted_top3_pitches": [{"pitch_label": label, "probability": prob} for label, prob in top3],

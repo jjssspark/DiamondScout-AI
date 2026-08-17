@@ -1,0 +1,9 @@
+{
+  "backend": "lgbm",
+  "n_features": 88,
+  "runs": 20,
+  "mean_ms": 1.73,
+  "min_ms": 1.54,
+  "max_ms": 4.17,
+  "baseline_rf_mean_ms": 23.6
+}

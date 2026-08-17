@@ -61,6 +61,47 @@ def attach_priors(
     return out
 
 
+def save_serving_priors(
+    train_df: pd.DataFrame,
+    label_ids: list[int],
+    batter_profile: pd.DataFrame | None,
+    out_dir: str,
+) -> None:
+    """서빙이 쓸 prior 테이블을 그대로 내보낸다.
+
+    학습에 쓴 것과 **같은 함수·같은 k**로 만든 표를 저장한다. 서빙에서
+    count_pitch_profile 같은 다른 집계를 대신 쓰면 스무딩 여부와 집계 구간이 달라져
+    모델이 학습 때와 다른 분포를 받는다. prior가 gain 중요도의 81%를 지고 있어서
+    이 불일치는 에러 없이 정확도만 깎는다.
+
+    parquet이 아니라 CSV인 이유: requirements-deploy.txt에 pyarrow가 없다.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    build_pitcher_prior(train_df, label_ids).to_csv(
+        os.path.join(out_dir, "pitcher_prior.csv"), index=False
+    )
+    build_count_prior(train_df, label_ids).to_csv(
+        os.path.join(out_dir, "count_prior.csv"), index=False
+    )
+    if batter_profile is not None:
+        build_batter_matchup_features(train_df, batter_profile).to_csv(
+            os.path.join(out_dir, "batter_features.csv"), index=False
+        )
+    with open(os.path.join(out_dir, "league_prior.json"), "w", encoding="utf-8") as f:
+        json.dump(league_prior(train_df, label_ids), f, ensure_ascii=False, indent=2)
+
+    # 서빙은 경기 상태를 모른다 - 앱이 받는 건 볼카운트와 합성한 최근 5구뿐이라
+    # 아래 3개는 관측할 수 없다. train 대표값으로 고정한다. 세 피처의 gain 중요도 합이
+    # 0.89%라 고정해도 test top1이 0.4371 -> 0.4325로 0.46%p만 떨어진다(실측).
+    defaults = {
+        "pitcher_pitch_count_game": float(train_df["pitcher_pitch_count_game"].median()),
+        "times_through_order": float(train_df["times_through_order"].median()),
+        "prev_pitch_outcome_enc": int(train_df["prev_pitch_outcome_enc"].mode().iloc[0]),
+    }
+    with open(os.path.join(out_dir, "temporal_defaults.json"), "w", encoding="utf-8") as f:
+        json.dump(defaults, f, ensure_ascii=False, indent=2)
+
+
 def build_enriched_splits(root: str, year: int):
     df = load_dataset(root, year)
 
@@ -73,6 +114,12 @@ def build_enriched_splits(root: str, year: int):
 
     df = add_temporal_features(df)
     train_df, val_df, test_df = time_based_split(df)
+
+    # 서빙 prior를 여기서 같이 내보낸다. 따로 만들 수 있게 두면 언젠가 학습 데이터와
+    # 어긋나는데, prior가 모델 gain의 81%라 그 순간 정확도가 조용히 무너진다.
+    save_serving_priors(
+        train_df, label_ids, batter_profile, os.path.join(root, "models", "serving_priors")
+    )
 
     return tuple(
         attach_priors(split, train_df, label_ids, batter_profile)

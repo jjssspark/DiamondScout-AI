@@ -77,7 +77,7 @@ class TestPredictTopK:
                 "model": mock_rf_model,
                 "feature_cols": list(CONTEXT.keys()),
             }
-            service = PredictionService(root_dir="/fake/root")
+            service = PredictionService(root_dir="/fake/root", backend="rf")
         assert service.id_to_label == id_to_label
         return service
 
@@ -95,3 +95,105 @@ class TestPredictTopK:
 
         assert len(result) == 1
         assert result[0][0] == "SL"
+
+
+# --- LightGBM 백엔드 -----------------------------------------------------------
+#
+# 여기서는 mock을 쓰지 않는다. 학습에 쓴 prior 테이블과 서빙이 읽는 테이블이 같은지가
+# 이 백엔드의 핵심인데, mock 하면 바로 그 부분을 검증하지 못한다.
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_LGBM_MODEL = os.path.join(ROOT, "models", "next_pitch_lgbm.txt")
+
+pytestmark_lgbm = pytest.mark.skipif(
+    not os.path.exists(_LGBM_MODEL), reason="LightGBM 아티팩트 없음 (scripts/train_lgbm.py 필요)"
+)
+
+
+def _lgbm_context(**overrides) -> dict:
+    """CONTEXT + prior 조회용 식별자. pitcher/batter는 모델 피처가 아니라 조회 키다."""
+    return {**CONTEXT, "pitcher": 607074, "batter": 621566, **overrides}
+
+
+@pytestmark_lgbm
+class TestLgbmBackend:
+    def test_returns_same_shape_as_before(self):
+        service = PredictionService(backend="lgbm")
+
+        top3 = service.predict_top_k(_lgbm_context(), [_make_pitch(i) for i in range(LOOKBACK)], k=3)
+
+        assert len(top3) == 3
+        assert all(isinstance(label, str) and isinstance(p, float) for label, p in top3)
+        assert top3 == sorted(top3, key=lambda t: -t[1])
+
+    def test_full_proba_sums_to_one(self):
+        service = PredictionService(backend="lgbm")
+
+        proba = service.predict_full_proba(_lgbm_context(), [_make_pitch(i) for i in range(LOOKBACK)])
+
+        assert abs(sum(proba.values()) - 1.0) < 1e-6
+
+    def test_unknown_pitcher_does_not_raise(self):
+        """prior를 못 찾는 투수도 예측이 실패하면 안 된다."""
+        service = PredictionService(backend="lgbm")
+        context = _lgbm_context(pitcher=999999, batter=999999)
+
+        assert len(service.predict_top_k(context, [_make_pitch(i) for i in range(LOOKBACK)], k=3)) == 3
+
+    def test_feature_row_covers_every_column_the_model_wants(self):
+        """빠진 컬럼은 예외가 아니라 NaN이 된다. 모델은 그대로 돌고 정확도만 떨어져
+        아무도 눈치채지 못한다 - TS-007/TS-009와 같은 계열의 사고다."""
+        service = PredictionService(backend="lgbm")
+
+        row = service._feature_row(_lgbm_context(), [_make_pitch(i) for i in range(LOOKBACK)])
+
+        assert set(service.feature_cols) <= set(row)
+        assert not [c for c in service.feature_cols if row[c] is None]
+
+    def test_prior_values_match_the_training_table(self):
+        """서빙 prior가 학습에 쓴 표와 다른 값이면 모델이 학습 때와 다른 분포를 받는다.
+        prior는 모델 gain의 81%다."""
+        import pandas as pd
+
+        table = pd.read_csv(os.path.join(ROOT, "models", "serving_priors", "pitcher_prior.csv"))
+        known = int(table["pitcher"].iloc[0])
+        expected = float(table["pitcher_prior_0"].iloc[0])
+
+        service = PredictionService(backend="lgbm")
+        row = service._feature_row(
+            _lgbm_context(pitcher=known), [_make_pitch(i) for i in range(LOOKBACK)]
+        )
+
+        assert row["pitcher_prior_0"] == pytest.approx(expected)
+
+    def test_unknown_pitcher_falls_back_to_league_prior(self):
+        import json
+
+        with open(os.path.join(ROOT, "models", "serving_priors", "league_prior.json")) as f:
+            league = json.load(f)
+
+        service = PredictionService(backend="lgbm")
+        row = service._feature_row(
+            _lgbm_context(pitcher=999999), [_make_pitch(i) for i in range(LOOKBACK)]
+        )
+
+        assert row["pitcher_prior_0"] == pytest.approx(league["0"])
+
+    def test_same_pitch_streak_counts_the_trailing_run(self):
+        service = PredictionService(backend="lgbm")
+        pitches = [_make_pitch(0), _make_pitch(1), _make_pitch(2), _make_pitch(2), _make_pitch(2)]
+
+        row = service._feature_row(_lgbm_context(), pitches)
+
+        assert row["same_pitch_streak"] == 3
+
+    def test_first_pitch_flag_follows_the_count(self):
+        service = PredictionService(backend="lgbm")
+        pitches = [_make_pitch(i) for i in range(LOOKBACK)]
+
+        fresh = service._feature_row(_lgbm_context(balls=0, strikes=0), pitches)
+        deep = service._feature_row(_lgbm_context(balls=1, strikes=2), pitches)
+
+        assert fresh["is_first_pitch_of_ab"] == 1
+        assert deep["is_first_pitch_of_ab"] == 0
+        assert deep["pitch_of_atbat"] == 4
