@@ -16,6 +16,10 @@ CUSTOM_CSS = """
 .gradio-container {
     background: #f4f2ec !important;
     max-width: 1560px !important;
+    /* width가 없으면 컨테이너 폭이 내용의 min-content로 정해진다. 헤더의 "DIAMONDSCOUT"는
+       자를 수 없는 한 덩어리라 375px 화면에서 컨테이너를 416px로 밀어올렸고, body가
+       overflow-x: clip이라 넘친 만큼이 스크롤도 안 되고 그냥 잘려나갔다. */
+    width: 100% !important;
     margin: 0 auto !important;
     font-size: 17px !important;
     color-scheme: light;
@@ -146,16 +150,26 @@ CUSTOM_CSS = """
 }
 .ds-player-card .ds-player-meta { font-size: 12.5px; color: #6b6555; margin-top: 3px; word-break: keep-all; }
 .ds-player-gauges { margin-top: 11px; display: flex; flex-direction: column; gap: 9px; }
+/* 라벨 | 막대 | % 를 한 줄에 놓으면(이전 1fr 84px 42px) 매치업 열이 296px일 때 라벨에
+   118px밖에 안 남아 "포심 패스트볼(FF)"이 세 줄로 쪼개졌다. 라벨과 %를 위 줄에, 막대를
+   아래 줄에 두면 폭 의존이 사라진다. 결과 패널의 Top-3 게이지(.ds-rank)와 같은 형태라
+   두 게이지가 한 체계로 읽히는 이점도 있다. */
 .ds-gauge-row {
-    display: grid; grid-template-columns: 1fr 84px 42px; align-items: center; gap: 8px; font-size: 12px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "label value" "track track";
+    align-items: baseline; gap: 3px 8px; font-size: 12px;
 }
-.ds-gauge-row .ds-gauge-label { color: #6b6555; font-weight: 700; }
+/* keep-all이 없으면 "포심 패스트볼"이 "포심 패스 / 트볼"처럼 단어 중간에서 잘린다. */
+.ds-gauge-row .ds-gauge-label { grid-area: label; color: #6b6555; font-weight: 700; word-break: keep-all; }
 .ds-gauge-track {
+    grid-area: track;
     display: block; height: 8px; border-radius: 999px; background: #f7f5ef;
     border: 1px solid #e6e1d3; overflow: hidden;
 }
 .ds-gauge-fill { display: block; height: 100%; background: #14203c; border-radius: 999px; }
 .ds-gauge-row .ds-gauge-value {
+    grid-area: value;
     font-family: 'Share Tech Mono', monospace; font-weight: 800; text-align: right; color: #14203c;
 }
 
@@ -402,7 +416,10 @@ body {
 
 /* ===== 반응형 브레이크포인트 ===== */
 /* 태블릿 — 2열, 결과는 아래 전폭 */
-@media (max-width: 1023px) {
+/* 경계가 1023px일 때 1024px가 3열이 되는 가장 좁은 폭이었는데, 3fr 5fr 4fr에서
+   매치업 열이 232px까지 눌려 "포심 패스트볼(FF)"이 세 줄로 쪼개졌다. 라벨이 한 줄로
+   들어가려면 매치업 열에 약 280px이 필요하고, 그러려면 뷰포트가 1216px 이상이어야 한다. */
+@media (max-width: 1215px) {
     .ds-console { grid-template-columns: 1fr 1fr !important; }
     .ds-col-result { grid-column: 1 / -1; }
 }
@@ -497,8 +514,13 @@ body {
     margin-bottom: 2px;
 }
 
+/* 씬은 콘솔의 주인공이라 열 폭을 최대한 채운다. 목업에서 그대로 가져온 230px는
+   2열이 되는 768px 구간에서 열 폭 344px에 한참 못 미쳐 여백만 남겼다. */
 @media (max-width: 900px) {
-    .ds-scene { max-width: 230px; }
+    .ds-scene { max-width: 340px; }
+}
+@media (max-width: 600px) {
+    .ds-scene { max-width: 300px; }
 }
 
 /* ============================================================================
@@ -580,5 +602,17 @@ body {
 @media (max-width: 900px) {
     .ds-risks { flex-wrap: wrap; }
     .ds-risk { flex: 1 1 calc(50% - 4px); }
+}
+
+/* ===== 폰 폭 보정 (Task 7 반응형 검증에서 발견) ===== */
+@media (max-width: 600px) {
+    /* .ds-brand가 min-width:0이라 무한정 좁아질 수 있었고, 그 결과 부제가
+       한 글자씩 세로로 쌓였다. 줄여서 뭉개는 대신 줄을 바꾼다. */
+    .ds-top .ds-brand { flex-wrap: wrap; }
+    .ds-top .ds-brand__sub { flex-basis: 100%; }
+    /* 26px + 0.13em 자간이면 워드마크만 약 290px다. 375px 화면에서 패딩까지 빼면
+       남는 폭이 없어 컨테이너를 밀어낸다. */
+    .ds-top .ds-brand__word { font-size: 21px; letter-spacing: 0.08em; }
+    .ds-top { padding: 12px 14px; }
 }
 """
