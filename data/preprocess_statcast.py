@@ -11,6 +11,8 @@ import os
 import numpy as np
 import pandas as pd
 
+from data.player_names import attach_player_names
+
 RARE_PITCH_MIN_COUNT = 1000
 LOOKBACK = 5
 HARD_HIT_THRESHOLD = 95.0
@@ -192,7 +194,16 @@ def build_zone_risk_profile(df: pd.DataFrame) -> pd.DataFrame:
     return g.sort_values(["pitcher", "pitch_label", "zone_cell"]).reset_index(drop=True)
 
 
-def build_batter_matchup_profile(df: pd.DataFrame) -> pd.DataFrame:
+def _load_player_names(processed_dir: str) -> pd.DataFrame | None:
+    """이름 표가 아직 없으면 None. 그러면 프로필에 player_name 컬럼이 안 붙고
+    화면은 기존대로 'Batter ID {id}' 폴백을 쓴다. 전처리를 막지는 않는다."""
+    path = os.path.join(processed_dir, "player_names.csv")
+    return pd.read_csv(path) if os.path.exists(path) else None
+
+
+def build_batter_matchup_profile(df: pd.DataFrame, names: pd.DataFrame | None = None) -> pd.DataFrame:
+    """names를 주면 player_name 컬럼을 붙인다. raw의 player_name은 투수 이름이라
+    타자 이름은 별도 룩업에서 온다(data/player_names.py)."""
     g = df.groupby(["batter", "stand", "p_throws", "pitch_label"]).agg(
         pitch_count=("pitch_label", "size"),
         whiff_rate=("is_whiff", "mean"),
@@ -202,7 +213,10 @@ def build_batter_matchup_profile(df: pd.DataFrame) -> pd.DataFrame:
         extra_base_hit_rate=("is_extra_base_hit", "mean"),
         avg_delta_run_exp=("delta_run_exp", "mean"),
     ).reset_index()
-    return g.sort_values(["batter", "stand", "p_throws", "pitch_label"]).reset_index(drop=True)
+    g = g.sort_values(["batter", "stand", "p_throws", "pitch_label"]).reset_index(drop=True)
+    if names is not None:
+        g = attach_player_names(g, names, id_col="batter")
+    return g
 
 
 def process_year(root: str, year: int) -> None:
@@ -225,7 +239,7 @@ def process_year(root: str, year: int) -> None:
         f"pitcher_pitch_profile_{year}.csv": build_pitcher_pitch_profile(df),
         f"count_pitch_profile_{year}.csv": build_count_pitch_profile(df),
         f"zone_risk_profile_{year}.csv": build_zone_risk_profile(df),
-        f"batter_matchup_profile_{year}.csv": build_batter_matchup_profile(df),
+        f"batter_matchup_profile_{year}.csv": build_batter_matchup_profile(df, _load_player_names(processed_dir)),
     }
     for filename, out_df in outputs.items():
         path = os.path.join(processed_dir, filename)
