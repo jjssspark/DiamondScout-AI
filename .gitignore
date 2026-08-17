@@ -43,6 +43,7 @@ uploads/
 # 대용량 데이터·모델 (git 저장소 무게 관리, GitHub 100MB 제한)
 data/raw/
 data/processed/next_pitch_dataset_*.csv
+data/processed/enriched_*.parquet
 data/processed/model_outputs/
 models/*.joblib
 models/*.keras

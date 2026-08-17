@@ -19,6 +19,7 @@
 
 | ID | 날짜 | 영역 | 문제 | 심각도 | 상태 |
 |---|---|---|---|---|---|
+| TS-009 | 2026-08-17 | Build / Test | 전처리 CLI가 `ModuleNotFoundError: No module named 'data'`로 죽음 — repo 루트의 `data/` 폴더 안에서 나는 에러라 원인이 직관과 반대였고, 테스트 53개·브라우저 검증·잔존 참조 grep이 전부 통과한 채 커밋됨 | High | 해결됨 |
 | TS-008 | 2026-08-17 | FE / 데이터 해석 | 스트라이크 존 보드가 처음부터 좌우로 뒤집혀 그려지고 있었음 — 추천 문구는 계속 맞았고 그림만 거울상이라 아무도 눈치채지 못했음 | High | 해결됨 |
 | TS-007 | 2026-08-16 | FE | "순수 이동" 리팩터링 후 `분석 실행`이 `NameError`로 전부 실패 — 바이트 동일성 검증·코드 리뷰·테스트 23개를 모두 통과했는데도 커밋 시점부터 앱의 주기능이 죽어 있었음 | Critical | 해결됨 |
 | TS-006 | 2026-08-05 | Infra | 공개 데모 배포처로 고른 Hugging Face Spaces가 생성 시점에 402 반환 — Gradio Space 무료 티어가 PRO 전용으로 바뀌어 있었음 | High | 해결됨 |
@@ -35,6 +36,117 @@
 ---
 
 ## 기록
+
+## TS-009 · 전처리 CLI가 `ModuleNotFoundError: No module named 'data'`로 죽음 — repo 루트의 `data/` 폴더 안에서 나는 에러라 원인이 직관과 반대였고, 테스트 53개·브라우저 검증·잔존 참조 grep이 전부 통과한 채 커밋됨
+
+| | |
+|---|---|
+| **날짜** | 2026-08-17 |
+| **영역** | Build / Test |
+| **심각도** | High |
+| **상태** | 해결됨 |
+| **소요 시간** | 발견 즉시 원인 특정. 다만 커밋(c200826) 후 3개 태스크가 지난 뒤에야 드러남 |
+
+### 증상
+
+트랙 A Task 4에서 전처리를 재실행하려 하자 즉시 죽었다.
+
+```
+Traceback (most recent call last):
+  File "/Users/tina/Project/DiamondScout_AI/data/preprocess_statcast.py", line 14, in <module>
+    from data.player_names import attach_player_names
+ModuleNotFoundError: No module named 'data'
+```
+
+`data/` 폴더는 명백히 존재하고, `data/player_names.py`도 존재하고, 같은 import를
+쓰는 테스트 53개는 전부 통과한다.
+
+### 재현 조건
+
+- `python data/preprocess_statcast.py --year 2025` — 100% 재현.
+- `pytest` — 재현되지 않음(통과).
+- `python -c "from data.player_names import attach_player_names"` (루트에서) — 재현되지 않음.
+
+즉 **실행 방식에만 의존**한다.
+
+### 원인
+
+**표면**: `data/preprocess_statcast.py:14`의 `from data.player_names import attach_player_names`.
+
+**근본**: 파이썬은 스크립트를 직접 실행하면 `sys.path[0]`을 **그 스크립트가 있는 디렉터리**로
+잡는다. `python data/preprocess_statcast.py`는 `sys.path[0] = <repo>/data`가 되므로,
+`data`라는 이름의 패키지를 찾을 위치에 repo 루트가 없다. 반대로 pytest는 rootdir를
+`sys.path`에 넣고, `python -c`는 CWD를 넣기 때문에 둘 다 정상 동작한다.
+
+`data/` 폴더가 눈앞에 있는데 "No module named 'data'"가 나오는 게 직관과 반대라
+에러 메시지만 봐서는 원인이 안 잡힌다.
+
+혼입 시점은 `c200826`(트랙 A Task 1). 그 이전 이 파일의 import는 argparse/json/os/numpy/pandas
+뿐이라 패키지 경로 import가 하나도 없었고, 따라서 스크립트 실행이 문제없이 됐다.
+
+### 시도했지만 안 된 것 — 정확히는, 커밋 전에 통과해버린 것들
+
+세 겹의 안전망이 전부 이 사고를 놓쳤다. 실패한 디버깅이 아니라 **실패한 검증**이다.
+
+| 안전망 | 결과 | 왜 못 잡았나 |
+|---|---|---|
+| pytest 53건 | 전부 통과 | 테스트는 repo 루트를 `sys.path`에 넣고 돈다. 깨진 실행 경로를 안 지난다 |
+| 브라우저 실기동 검증 | 정상 | 앱은 **이미 만들어진** CSV를 읽는다. 전처리를 호출하지 않는다 |
+| TS-007 이후 도입한 "잔존 참조 grep" | 통과 | 참조는 멀쩡하다. 심볼도 파일도 다 존재한다. 깨진 건 *실행 경로*지 참조가 아니다 |
+
+TS-007과 같은 계열(커밋은 초록불, 실제 실행은 사망)이지만 **탐지 수단이 다르다.**
+TS-007은 grep으로 잡혔을 사고고, TS-009는 grep으로는 원리적으로 못 잡는다.
+
+### 해결
+
+1. `data/preprocess_statcast.py`에 실행 방식과 무관한 부트스트랩 추가
+   (`data/build_enriched_dataset.py`가 이미 쓰던 패턴과 동일):
+
+```python
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+```
+
+2. 더 중요한 조치 — **진입점을 실제로 실행하는 회귀 테스트** 신설
+   (`tests/test_cli_entrypoints.py`). `--help`만 호출하므로 데이터를 읽지도 쓰지도 않고
+   2.4초에 끝난다.
+
+```python
+@pytest.mark.parametrize("script", ["data/preprocess_statcast.py",
+                                    "data/build_enriched_dataset.py"])
+def test_cli_script_starts(script):
+    result = subprocess.run([sys.executable, script, "--help"],
+                            cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, f"{script} 실행 실패:\n{result.stderr}"
+```
+
+### 검증
+
+- 수정을 `git stash`로 잠시 걷어낸 상태에서 새 테스트 실행 →
+  `1 failed, 1 passed` (`preprocess_statcast.py`만 실패). **테스트가 실제로 이 버그를 잡는다는 확인.**
+- 수정 복원 후 → `2 passed`.
+- 전처리 재실행 성공: `next_pitch_dataset_2025.csv` 593,797행 × 64열.
+- 재생성 결정성 확인: 추적 중인 프로파일 CSV 4개 중 3개가 **바이트 동일**,
+  `batter_matchup_profile_2025.csv`만 의도한 `player_name` 컬럼이 추가돼 변경.
+
+### 추후 관리
+
+- `__main__`이 있는 스크립트를 새로 만들면 `tests/test_cli_entrypoints.py`의
+  `CLI_SCRIPTS`에 추가한다. 지금 미등록 상태인 것: `data/collect_statcast.py`,
+  `data/build_multi_year_profiles.py`, `data/player_names.py`
+  (앞의 둘은 argparse 확인 필요, 마지막은 `--help`가 없고 실행 시 네트워크를 탄다).
+- 완료 조건 갱신: 이동·정리 리팩터링에는 "잔존 참조 grep"에 더해
+  **"영향받는 진입점을 실제로 한 번 실행"**을 넣는다.
+
+### 배운 점
+
+- **import가 성립하는지와 실행이 되는지는 다른 질문이다.** `sys.path[0]`이 실행 방식마다
+  달라지므로, pytest에서 되는 import가 스크립트 실행에서 된다는 보장이 전혀 없다.
+- 검증 수단이 실제 사용 경로를 지나지 않으면 몇 개를 겹쳐도 소용없다. 53개 테스트가
+  통과한 사실은 이 버그에 대해 아무 정보도 주지 않았다.
+- 사고가 재발했을 때 같은 처방(grep)을 반복하지 말고 **탐지 수단이 그 계열을 커버하는지**
+  따져야 한다. TS-007의 처방은 TS-009에 원리적으로 무력했다.
+
+---
 
 ## TS-008 · 스트라이크 존 보드가 처음부터 좌우로 뒤집혀 그려지고 있었음 — 추천 문구는 계속 맞았고 그림만 거울상이라 아무도 눈치채지 못했음
 

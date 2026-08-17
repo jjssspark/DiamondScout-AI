@@ -7,9 +7,14 @@ raw 데이터는 읽기만 하며 수정하지 않는다.
 import argparse
 import json
 import os
+import sys
 
 import numpy as np
 import pandas as pd
+
+# `python data/preprocess_statcast.py`로 직접 실행하면 sys.path[0]이 data/라서
+# data 패키지를 못 찾는다. 루트를 넣어 실행 방식과 무관하게 동작시킨다.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.player_names import attach_player_names
 
@@ -154,10 +159,17 @@ def build_next_pitch_dataset(df: pd.DataFrame) -> pd.DataFrame:
             work[lag_col] = grouped[col].shift(lag)
             lag_feature_cols.append(lag_col)
 
+    # 직전 투구의 결과. dropna보다 먼저 계산해야 한다 — 앞 5구가 잘려나간
+    # 프레임에서 shift(1)을 하면 실제 직전 투구가 아닌 값을 집는다.
+    work["prev_pitch_outcome"] = grouped["pitch_result_group"].shift(1).fillna("none")
+
     work = work.dropna(subset=lag_feature_cols).copy()
     work["target_pitch_label_id"] = work["pitch_label_id"]
 
-    out_cols = id_cols + current_context_cols + lag_feature_cols + ["target_pitch_label_id"]
+    out_cols = (
+        id_cols + current_context_cols + lag_feature_cols
+        + ["prev_pitch_outcome", "target_pitch_label_id"]
+    )
     return work[out_cols].reset_index(drop=True)
 
 
