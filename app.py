@@ -54,7 +54,6 @@ from ui.result_panel import (
 )
 from ui.scene import build_scene_payload, render_scene_canvas, scene_engine_js
 from ui.styles import CUSTOM_CSS
-from ui.trajectory_view import render_batter_hotcold_zone, render_pitcher_hotcold_zone
 from ui.zone_heatmap import _zone_hand_label
 
 # matplotlib 기본 폰트(DejaVu Sans)는 한글 글리프가 없어 히트맵/위치 그래프의 한글 라벨이
