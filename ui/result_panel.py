@@ -1,6 +1,7 @@
 """위험도 카드 / Top-3 랭킹 카드 / 히어로 추천 카드 / 인사이트 카드 렌더러.
 app.py에서 순수 이동됨 (Task 2, 동작 변경 없음)."""
 
+import html
 from datetime import datetime
 
 from services.scouting_service import pitch_label_kr
@@ -35,23 +36,62 @@ def risk_level(key: str, value: float | None) -> tuple[str, str, int]:
         return "보통", "#b8860b", pct
     return "높음", "#c8102e", pct
 
-def render_risk_cards(risk_summary: dict) -> str:
-    cards = []
+def render_risk_badges(risk_summary: dict) -> str:
+    """위험도 4종을 한 줄짜리 행 4개로. 목업의 #risks 블록과 같은 마크업이다.
+
+    기존 render_risk_cards는 150px 카드 4개를 가로로 늘어놓아 결과 열을 다 잡아먹었다.
+    콘솔은 존이 주인공이므로 위험도는 훑어보는 정보로 내린다.
+    """
+    rows = []
     for key, label_kr in RISK_LABELS_KR.items():
         value = risk_summary.get(key)
-        level, color, pct = risk_level(key, value)
+        level, color, _ = risk_level(key, value)
+        # risk_level의 pct는 정수 반올림이라 1.7%가 2%로 뭉개진다. 표시값은 원값에서 만든다.
         value_text = "데이터 부족" if value is None else f"{value:.1%}"
-        cards.append(f"""
-        <div style="flex:1; min-width:150px; border:1px solid {color}55; border-radius:14px; padding:16px 18px; margin:4px;
-                    background:#ffffff; box-shadow: 0 2px 8px rgba(20,32,60,0.06);">
-          <div style="font-size:14px; color:#6b6555;">{label_kr}</div>
-          <div style="font-size:22px; font-weight:800; color:{color}; margin:4px 0;">{level}</div>
-          <div style="font-size:13px; color:#6b6555;">{value_text}</div>
-          <div style="background:#f0ece0; border-radius:6px; height:9px; margin-top:10px;">
-            <div style="background:{color}; width:{pct}%; height:9px; border-radius:6px;"></div>
-          </div>
-        </div>""")
-    return f'<div style="display:flex; flex-wrap:wrap; gap:8px;">{"".join(cards)}</div>'
+        # 배지는 4칸을 나눠 쓰므로 "패턴 노출 위험"이 들어가면 넘친다. 섹션 제목이 이미
+        # "위험도"라 접미를 떼도 뜻이 흐려지지 않는다(목업의 RISK_LABEL도 짧은 쪽이다).
+        badge_label = label_kr.removesuffix(" 위험")
+        rows.append(
+            f'<div class="ds-risk">'
+            f'<div><span class="ds-risk__dot" style="background:{color}"></span>'
+            f'<span class="ds-risk__label">{html.escape(badge_label)}</span></div>'
+            f'<div class="ds-risk__lvl" style="color:{color}">{level}</div>'
+            f'<div class="ds-risk__pct ds-num">{value_text}</div>'
+            f"</div>"
+        )
+    return f'<div class="ds-risks">{"".join(rows)}</div>'
+
+
+def render_top3_gauges(top3: list[dict]) -> str:
+    """예측 확률 Top-3를 순위 번호 + 가로 게이지로. 목업의 #top3 블록과 같은 마크업이다.
+
+    막대 길이는 1위 대비 비율이다. 절대 확률로 그리면 세 막대가 다 짧아 순위 차이가
+    눈에 안 들어온다.
+    """
+    rank_colors = ("#c8102e", "#14203c", "#8a8375")
+    items = top3[:3]
+    top_prob = max((item["probability"] for item in items), default=0.0) or 1.0
+    rows = []
+    for i, item in enumerate(items):
+        label = item["pitch_label"]
+        prob = item["probability"]
+        width = round(100 * prob / top_prob)
+        color = rank_colors[i] if i < len(rank_colors) else "#6b6555"
+        rows.append(
+            f'<div class="ds-rank ds-rank--{i + 1}">'
+            f'<span class="ds-rank__no" style="background:{color}">{i + 1}</span>'
+            f'<div class="ds-rank__body">'
+            f'<div class="ds-rank__line">'
+            f'<span class="ds-rank__name">{html.escape(pitch_label_kr(label))} '
+            f"<em>({html.escape(str(label))})</em></span>"
+            f'<span class="ds-rank__pct ds-num" style="color:{color}">{prob:.1%}</span>'
+            f"</div>"
+            f'<div class="ds-track"><div class="ds-track__fill" '
+            f'style="width:{width}%; background:{color}"></div></div>'
+            f"</div></div>"
+        )
+    return f'<div class="ds-top3">{"".join(rows)}</div>'
+
 
 def _risk_summary_line(label_kr: str, value: float | None, key: str) -> str:
     level, _, _ = risk_level(key, value)
@@ -62,36 +102,6 @@ def _risk_summary_line(label_kr: str, value: float | None, key: str) -> str:
 # ============================================================================
 # 카드형 결과 표시 (Top-3 랭킹 카드 / 히어로 추천 카드 / 인사이트 카드)
 # ============================================================================
-
-def render_top3_cards(top3: list[dict], title: str) -> str:
-    """예측 확률 Top-3를 단순 라벨 대신 순위 카드(금/은/동 + 확률 바)로 보여준다."""
-    medal_colors = ["#c8102e", "#8a8375", "#b8860b"]
-    rows = []
-    max_prob = max((item["probability"] for item in top3), default=1.0) or 1.0
-    for i, item in enumerate(top3[:3]):
-        kr = pitch_label_kr(item["pitch_label"])
-        pct = item["probability"]
-        bar_width = round(100 * pct / max_prob)
-        color = medal_colors[i] if i < len(medal_colors) else "#6b6555"
-        rows.append(f"""
-        <div style="display:flex; align-items:center; gap:14px; margin:12px 0;">
-          <div style="width:32px; height:32px; border-radius:50%; background:{color}; color:#ffffff; font-size:15px;
-                      font-weight:800; display:flex; align-items:center; justify-content:center; flex-shrink:0;">{i + 1}</div>
-          <div style="flex:1;">
-            <div style="display:flex; justify-content:space-between; font-size:16px;">
-              <span style="font-weight:700; color:#14203c;">{kr} ({item['pitch_label']})</span>
-              <span style="color:{color}; font-weight:700;">{pct:.1%}</span>
-            </div>
-            <div style="background:#f0ece0; border-radius:6px; height:10px; margin-top:6px;">
-              <div style="background:{color}; width:{bar_width}%; height:10px; border-radius:6px;"></div>
-            </div>
-          </div>
-        </div>""")
-    return f"""
-    <div style="background:#ffffff; border:1px solid #e6e1d3; border-radius:14px; padding:18px 22px;">
-      <div style="font-size:15px; color:#6b6555; margin-bottom:10px;">{title}</div>
-      {"".join(rows)}
-    </div>"""
 
 def render_hero_recommend_card(
     hero_label: str, hero_value: str, hero_note: str, secondary_label: str, secondary_value: str, accent: str = "#1f8a4c",

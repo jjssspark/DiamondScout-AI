@@ -48,8 +48,8 @@ from ui.result_panel import (
     render_analysis_status,
     render_hero_recommend_card,
     render_insight_card,
-    render_risk_cards,
-    render_top3_cards,
+    render_risk_badges,
+    render_top3_gauges,
     risk_level,
 )
 from ui.scene import build_scene_payload, render_scene_canvas, scene_engine_js
@@ -560,8 +560,8 @@ def run_pitcher_analysis(
     result["score_situation_label"] = score_situation_label
     analysis_log_id = db_save_analysis_log("pitcher", pitcher_id, context, recent_pitches, comment or "", result)
 
-    top3_html = render_top3_cards(result["predicted_top3_pitches"], "던지면 유리한 구종 Top-3 (아웃/약한 타구 유도)")
-    risk_html = render_risk_cards(result["risk_summary"])
+    top3_html = _top3_section(result["predicted_top3_pitches"], "던지면 유리한 구종 Top-3 (아웃/약한 타구 유도)")
+    risk_html = render_risk_badges(result["risk_summary"])
 
     pr = result["pitcher_mode_result"]
     recommended_text = f"{pitch_label_kr(pr['recommended_pitch'])} ({pr['recommended_pitch']})"
@@ -645,8 +645,8 @@ def run_batter_analysis(
     result["score_situation_label"] = score_situation_label
     analysis_log_id = db_save_analysis_log("batter", pitcher_id, context, recent_pitches, comment or "", result)
 
-    top3_html = render_top3_cards(result["predicted_top3_pitches"], "상대 투수가 던질 가능성이 높은 구종 Top-3")
-    risk_html = render_risk_cards(result["risk_summary"])
+    top3_html = _top3_section(result["predicted_top3_pitches"], "상대 투수가 던질 가능성이 높은 구종 Top-3")
+    risk_html = render_risk_badges(result["risk_summary"])
 
     br = result["batter_mode_result"]
     recommend_card_html = render_hero_recommend_card(
@@ -810,6 +810,12 @@ def render_matchup_column(
 def _runners_text(on1b: int, on2b: int, on3b: int) -> str:
     names = [name for name, on in (("1루", on1b), ("2루", on2b), ("3루", on3b)) if on]
     return ", ".join(names) if names else "없음"
+
+
+def _top3_section(top3: list[dict], caption: str) -> str:
+    """모드마다 Top-3의 뜻이 달라서(내가 던질 구종 vs 상대가 던져올 구종) 캡션을 붙인다.
+    섹션 제목("예측 확률 Top-3")만으로는 어느 쪽인지 알 수 없다."""
+    return f'<p class="ds-caption">{html.escape(caption)}</p>{render_top3_gauges(top3)}'
 
 
 def _compose_result_html(meta: dict, hero_html: str, top3_html: str, risk_html: str, insight_html: str) -> str:

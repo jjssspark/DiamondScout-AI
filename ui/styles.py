@@ -500,4 +500,85 @@ body {
 @media (max-width: 900px) {
     .ds-scene { max-width: 230px; }
 }
+
+/* ============================================================================
+   결과 패널 — Top-3 게이지 + 위험도 배지 (Task 6)
+   목업에서 이식. 토큰은 이 파일 관례대로 리터럴로 바꿔 넣었다.
+   ============================================================================ */
+
+/* 숫자가 자리마다 폭이 달라지면 값이 바뀔 때 줄이 들썩인다 */
+.ds-num {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+}
+
+.ds-caption { font-size: 13px; color: #6b6555; margin: 0 0 8px; }
+
+.ds-track {
+    height: 8px;
+    border-radius: 999px;
+    background: #f7f5ef;
+    border: 1px solid #e6e1d3;
+    overflow: hidden;
+    margin-top: 4px;
+}
+.ds-track__fill { height: 100%; border-radius: 999px; }
+
+/* Top-3 게이지 행 */
+.ds-rank { display: flex; align-items: center; gap: 11px; margin: 9px 0; }
+
+.ds-rank__no {
+    width: 26px; height: 26px; flex: none;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 900;
+    color: #ffffff;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.ds-rank__body { flex: 1; min-width: 0; }
+.ds-rank__line {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+    font-size: 13.5px;
+}
+.ds-rank__name { font-weight: 800; color: #14203c; min-width: 0; }
+.ds-rank__name em { font-style: normal; color: #6b6555; font-weight: 700; font-size: 12px; }
+.ds-rank__pct { font-weight: 900; flex: none; }
+.ds-rank--1 .ds-rank__name { font-size: 15px; }
+
+.ds-rank .ds-track { margin-top: 5px; }
+.ds-rank .ds-track__fill { transition: width .35s cubic-bezier(.16,1,.3,1); }
+
+/* 위험도 배지 1줄 — 네 칸을 균등하게 나눈다 */
+.ds-risks {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.ds-risk {
+    flex: 1 1 0;
+    min-width: 0;
+    border: 1px solid #e6e1d3;
+    border-radius: 8px;
+    background: #f7f5ef;
+    padding: 8px 6px;
+    text-align: center;
+}
+
+.ds-risk__dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    display: inline-block; vertical-align: middle;
+    margin-right: 4px;
+}
+.ds-risk__label { font-size: 11.5px; font-weight: 700; color: #6b6555; white-space: nowrap; }
+.ds-risk__lvl { font-size: 14px; font-weight: 900; margin-top: 2px; }
+.ds-risk__pct { font-size: 11.5px; color: #6b6555; }
+
+/* 좁은 화면에서는 4칸이 다 뭉개진다. 2x2로 접는다. */
+@media (max-width: 900px) {
+    .ds-risks { flex-wrap: wrap; }
+    .ds-risk { flex: 1 1 calc(50% - 4px); }
+}
 """
