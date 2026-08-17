@@ -26,6 +26,15 @@ build/
 # 산출물
 output/*
 !output/screenshots/
+# 목업은 UI 승인 근거라 히스토리에 남긴다. 마젠타 원본(장당 1.2~1.5MB)은 제외하고
+# 크로마키 처리된 cut-*.png만 포함.
+!output/mockups/
+output/mockups/*
+!output/mockups/dugout-console.html
+!output/mockups/gemini-batter-scene-prompt.md
+!output/mockups/assets/
+output/mockups/assets/*
+!output/mockups/assets/cut-*.png
 reports/
 uploads/
 *.zip
