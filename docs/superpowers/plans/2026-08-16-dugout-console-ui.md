@@ -562,6 +562,120 @@ STEP 1이 드롭다운 2개로 뷰포트를 통째로 쓰던 구조를 없앤다
 
 ---
 
+### Task 5Z: 캔버스 스트라이크 존 이식 (계획 보강분)
+
+**왜 뒤늦게 추가되는가**: Task 5를 끝내고 나서야 발견했다. 승인된 목업의 주인공인 캔버스
+스트라이크 존(투수/타자 2시점, 실사 배경, 공 회전·궤적)이 원래 계획서 T4~T7 어디에도 없었다.
+앱은 여전히 `ui/zone_heatmap.py`의 SVG 보드를 쓴다. T6(선수 카드·결과 패널)·T7(반응형)로는
+닫히지 않는다. **T6보다 먼저 한다** — 존이 콘솔의 중심이고 T6의 카드·패널은 그 주변부라,
+존 크기가 확정돼야 나머지 레이아웃이 정해진다.
+
+**전제: Task 5 완료(3열 콘솔 레이아웃 적용).**
+
+**Files:**
+- Create: `ui/scene.py`
+- Create: `ui/static/scene.js`
+- Create: `tests/test_scene_payload.py`
+- Move: `output/mockups/assets/cut-*.png` → `ui/static/assets/` (git mv)
+- Move: `output/mockups/assets/bg-batter-view.jpeg` → `ui/static/assets/` (git mv)
+- Modify: `app.py`, `ui/styles.py`
+
+목업 HTML은 이미지 4장을 base64로 **인라인**하고 있어 PNG 파일에 런타임 의존하지 않는다.
+따라서 복사가 아니라 이동이며 중복 비용이 0이다.
+
+**통합 방식** (Gradio 6.19 문서 확인 완료):
+
+| 조각 | 수단 | 근거 |
+|---|---|---|
+| 엔진 정의 | `gr.Blocks(head=f"<script>{scene_engine_js()}</script>")` | `head=`는 페이지 로드 시 1회만 주입된다. `gr.HTML` 안의 `<script>`는 innerHTML 경로라 실행이 보장되지 않는다 |
+| 캔버스 마크업 | 정적 `gr.HTML(render_scene_canvas())` | 값이 안 바뀌므로 재렌더 불필요 |
+| 데이터 전달 | 숨긴 `gr.Textbox`(JSON) + `.change(None, box, None, js="(v)=>window.dsScene.update(JSON.parse(v))")` | Python이 진실 공급원, JS는 표시 전용. Task 4의 상태 규약과 같다 |
+| 이미지 | `gr.set_static_paths([Path("ui/static/assets")])` + `<img src="/gradio_api/file=ui/static/assets/...">` | base64 인라인(1MB)을 매 페이지 로드마다 실어 나르지 않는다 |
+
+**Interfaces:**
+- Consumes (전부 기존 코드에 존재): `zone_hit_risk_scores` / `zone_probability_scores`
+  (`dict[int, float]`, 키 0~9), `best_cell` / `target_cell` (`int`), `stand` (`"L"`/`"R"`),
+  `trajectories` (`list[dict]`: `pitch_label` / `cell` / `rank`)
+- Produces:
+  - `to_scene_index(cell: int, stand: str) -> int`
+  - `build_scene_payload(...) -> dict`
+  - `render_scene_canvas() -> str`
+  - `scene_engine_js() -> str`
+  - JS: `window.dsScene.update(payload)`, `window.dsScene.selfCheck()`
+
+**최대 위험 — 좌표 규약이 양쪽 다 다르다. 이게 이 태스크의 핵심이다.**
+
+| | 앱 (`services/scouting_service.py:18-19`) | 목업 (`dugout-console.html:2034,2048`) |
+|---|---|---|
+| 인덱스 | `cell` 1~9 | `idx` 0~8 |
+| row 0 | **하단**(낮은 코스) — `zone_heatmap.py:78`의 `(2 - row)` 반전이 근거 | **상단**(높은 코스) — `yT = SZ_TOP - (SZ_TOP-SZ_BOT)*(row/3)` |
+| col | 투수 시점 **화면** 좌→우 | **타자 기준** 0=바깥쪽·2=몸쪽. 화면 위치는 `insideSign()`이 좌/우타에 따라 자동 반전 |
+
+따라서 **행은 항상 반전, 열은 우타일 때만 반전**이다. 열 규칙의 근거는
+`ui/zone_heatmap.py:222-230`의 `_zone_hand_label` — 우타는 col 0이 몸쪽, 좌타는 col 0이 바깥쪽.
+
+이 변환을 엔진 안에 묻으면 TS-007과 똑같이 조용히 틀린다(앱은 뜨고 화면도 그려지는데 값만
+뒤집혀 있다). **순수 함수로 떼어내 Python에서 테스트한다.**
+
+- [ ] **Step 1: 실패하는 테스트 작성** — `tests/test_scene_payload.py`
+
+  최소 다음을 단언한다.
+  - `to_scene_index(1, "L") == 6` — cell 1은 app row0(하단)·col0. 좌타면 col0=바깥쪽 → 목업의 낮은 바깥쪽 = idx 6
+  - `to_scene_index(1, "R") == 8` — 우타면 col0=몸쪽 → 낮은 몸쪽 = idx 8
+  - `to_scene_index(5, "L") == to_scene_index(5, "R") == 4` — 한가운데는 좌/우타 불변
+  - `to_scene_index(9, "L") == 2` / `to_scene_index(9, "R") == 0`
+  - `{to_scene_index(c, s) for c in range(1, 10)} == set(range(9))` — 좌/우타 각각 전단사
+  - `build_scene_payload`가 존 밖 점수(키 0)를 9칸에 섞지 않는다
+  - 좌/우타 페이로드가 열 기준 정확한 거울상이다
+
+  검증: `venv/bin/python -m pytest tests/test_scene_payload.py` → **RED**
+
+- [ ] **Step 2: `ui/scene.py` 구현** — Step 1이 GREEN이 될 때까지.
+
+  검증: `venv/bin/python -m pytest tests/` → 기존 23개 포함 전부 통과
+
+- [ ] **Step 3: 엔진을 `ui/static/scene.js`로 추출**
+
+  목업 HTML의 씬 엔진 구간(약 1899~2700행: `ASSETS`/`MODES`/카메라 상수 ~ `renderScene`)을
+  **Task 1·2와 같은 순수 이동 규율로** 옮긴다. 손대는 곳은 두 군데뿐이다.
+  - 목업 전용 가짜 데이터(`HEAT`, `SCEN`, `QA`)를 제거하고 `window.dsScene.update(payload)`가
+    채우는 모듈 변수로 바꾼다
+  - base64 `data:` URL을 `/gradio_api/file=ui/static/assets/...` 경로로 바꾼다
+
+  카메라 상수(`F`, `cyRatio`, `panMag`, `Xmag`, `hpx`)는 **v4 확정값 그대로** 옮긴다. v5(존 확대)는
+  사용자가 이미 철회했다(progress.md 참조). 주석에 남은 v5 값도 함께 옮겨 다음 사람이 같은
+  방향으로 되돌아가지 않게 한다.
+
+  검증: `node --check ui/static/scene.js` PASS, 외부 참조 0건, `output/mockups/`의 원본과
+  diff를 떠서 변경분이 위 두 항목뿐임을 확인
+
+- [ ] **Step 4: `app.py` 배선**
+
+  `render_pitcher_zone_board` / `render_batter_zone_board` 호출부 2곳(`app.py:581`, `app.py:661`)을
+  `build_scene_payload` + 숨긴 JSON 박스 갱신으로 교체한다.
+
+  **잔존 참조 grep을 완료 조건에 넣는다** (Task 5 룰링). `render_pitcher_zone_board` /
+  `render_batter_zone_board` / `_render_strike_zone_board` / `zone_html`을 grep해 0건이거나,
+  남아 있다면 의도적으로 남긴 것임을 근거와 함께 적는다.
+
+  `ui/zone_heatmap.py`는 **이번 태스크에서 삭제하지 않는다** — `_zone_hand_label`이 살아 있고
+  `ZONE_COL_OF_CELL` 해석의 근거 문서 역할을 한다. 사용 여부는 T7에서 판정한다.
+
+- [ ] **Step 5: 실제 앱 검증 (필수 — 테스트로 대체 불가)**
+
+  TS-007이 바이트 동일성·코드 리뷰·테스트 23개를 전부 통과하고도 버튼 한 번에 터졌다.
+  캔버스는 Python 테스트가 닿지 않는 영역이라 이 단계가 유일한 안전망이다.
+  - `venv/bin/python app.py` → HTTP 200
+  - 브라우저에서 **분석을 실제로 실행**하고 캔버스가 그려지는지 확인
+  - 투수/타자 두 시점 전환
+  - 좌타/우타 전환 시 존·라벨·인물이 전부 동시에 거울상이 되는지
+  - 9칸 점수가 SVG 보드(교체 전)와 같은 값을 같은 자리에 표시하는지 — **좌표 매핑의 최종 검증**
+  - 공 궤적 애니메이션 재생, 콘솔 에러 0건(Gradio 자체 CDN preload 실패는 기존 알려진 잡음)
+
+**완료 조건**: 위 Step 1~5 전부 + `ui/static/scene.js` 800줄 이하.
+
+---
+
 ### Task 6: 선수 카드 + 결과 패널 재구성
 
 **Files:**
