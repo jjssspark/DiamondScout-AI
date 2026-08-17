@@ -8,7 +8,13 @@
 아무도 모른다(TROUBLESHOOTING.md TS-007과 같은 실패 모양).
 """
 
+from pathlib import Path
+
 SCENE_CELL_COUNT = 9
+
+# 엔진이 mount()에서 요구하는 DOM은 이 셋뿐이다. 하나라도 없으면 그리지 않고
+# 다음 프레임에 다시 본다(ui/static/scene.js의 mount 참고).
+_SCENE_JS_PATH = Path(__file__).resolve().parent / "static" / "scene.js"
 
 # 씬 엔진의 칸 이름 (ui/static/scene.js와 같은 순서). 라벨 자체는 엔진이 그리지만,
 # 여기 두면 변환이 맞는지 사람이 눈으로 대조할 수 있다.
@@ -73,3 +79,31 @@ def build_scene_payload(
         "metric": metric,
         "trajectories": mapped_trajectories,
     }
+
+
+def render_scene_canvas() -> str:
+    """씬의 정적 마크업. 값이 바뀌어도 이 HTML은 그대로라 다시 그리지 않는다.
+
+    목업(dugout-console.html)의 .ds-scene 블록에서 가져왔다. 코스 미리보기 패드는
+    장식이 아니라 접근성 장치다 — 존 셀은 원근 투영이라 모바일에서 30px 아래로
+    내려가 탭 타깃이 될 수 없다.
+    """
+    return """
+    <div class="ds-scene" id="scene">
+      <canvas class="ds-scene__canvas" id="sceneCanvas" width="520" height="600"
+              role="img" aria-labelledby="sceneAria"></canvas>
+      <p id="sceneAria" class="ds-sr">
+        스트라이크 존 3D 씬. 아래 코스 미리보기에서 칸을 고르면 그 코스로 던지는 장면을 재생합니다.
+      </p>
+      <div class="ds-scene__cells" id="sceneCells" aria-hidden="true"></div>
+    </div>
+    <div class="ds-coursepad" id="coursePad" role="group" aria-label="코스 미리보기"></div>"""
+
+
+def scene_engine_js() -> str:
+    """씬 엔진 소스. gr.Blocks(head=...)로 페이지에 1회 주입한다.
+
+    gr.HTML 안의 <script>는 innerHTML 경로라 실행이 보장되지 않으므로 head를 쓴다.
+    다만 head는 앱 렌더 이전에 실행되므로 엔진이 DOM을 잡는 일은 mount()로 미뤄져 있다.
+    """
+    return _SCENE_JS_PATH.read_text(encoding="utf-8")

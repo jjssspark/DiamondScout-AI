@@ -13,10 +13,12 @@ services/scouting_service.py의 ScoutingService를 사용해 "내가 투수라�
 """
 
 import html
+import json
 import os
 import re
 import textwrap
 from datetime import datetime
+from pathlib import Path
 
 import gradio as gr
 import matplotlib.pyplot as plt
@@ -50,13 +52,10 @@ from ui.result_panel import (
     render_top3_cards,
     risk_level,
 )
+from ui.scene import build_scene_payload, render_scene_canvas, scene_engine_js
 from ui.styles import CUSTOM_CSS
 from ui.trajectory_view import render_batter_hotcold_zone, render_pitcher_hotcold_zone
-from ui.zone_heatmap import (
-    _zone_hand_label,
-    render_batter_zone_board,
-    render_pitcher_zone_board,
-)
+from ui.zone_heatmap import _zone_hand_label
 
 # matplotlib 기본 폰트(DejaVu Sans)는 한글 글리프가 없어 히트맵/위치 그래프의 한글 라벨이
 # 깨지므로(빈 네모) macOS 기본 한글 폰트로 지정한다. AppleGothic 단독으로는 í/ó/ñ 같은 라틴
@@ -578,9 +577,10 @@ def run_pitcher_analysis(
          "cell": scouting_service.get_zone_cell_estimate(pitcher_id, item["pitch_label"])}
         for i, item in enumerate(result["predicted_top3_pitches"])
     ]
-    zone_html = render_pitcher_zone_board(
-        pr["zone_hit_risk_scores"], pr["best_zone_cell"], pr["recommended_pitch"], batter_stand, pitcher_trajectories,
-    )
+    scene_json = json.dumps(build_scene_payload(
+        mode="pitcher", stand=batter_stand, zone_scores=pr["zone_hit_risk_scores"],
+        highlight_cell=pr["best_zone_cell"], metric="HIT_RISK", trajectories=pitcher_trajectories,
+    ))
 
     meta = {
         "my_label": f"🧑‍⚾ 내 투수: {scouting_service.get_pitcher_name(pitcher_id)} (ID {pitcher_id})",
@@ -606,7 +606,7 @@ def run_pitcher_analysis(
     pitcher_state = {"mode": "pitcher", "result": result, "meta": meta, "analysis_log_id": analysis_log_id}
 
     return (
-        matchup_html, zone_html, result_html, report_md, pitcher_state, render_analysis_status(done=True),
+        matchup_html, scene_json, result_html, report_md, pitcher_state, render_analysis_status(done=True),
     )
 
 
@@ -658,9 +658,10 @@ def run_batter_analysis(
         {"pitch_label": loc["pitch_label"], "rank": i + 1, "cell": loc["zone_cell"]}
         for i, loc in enumerate(br["expected_locations"])
     ]
-    zone_html = render_batter_zone_board(
-        br["zone_probability_scores"], br["target_zone_cell"], my_stand, batter_trajectories,
-    )
+    scene_json = json.dumps(build_scene_payload(
+        mode="batter", stand=my_stand, zone_scores=br["zone_probability_scores"],
+        highlight_cell=br["target_zone_cell"], metric="PITCH_PROB", trajectories=batter_trajectories,
+    ))
 
     meta = {
         "my_label": f"🏏 내 타자: {get_batter_display(batter_id)}",
@@ -685,7 +686,7 @@ def run_batter_analysis(
     batter_state = {"mode": "batter", "result": result, "meta": meta, "analysis_log_id": analysis_log_id}
 
     return (
-        matchup_html, zone_html, result_html, report_md, batter_state, render_analysis_status(done=True),
+        matchup_html, scene_json, result_html, report_md, batter_state, render_analysis_status(done=True),
     )
 
 
@@ -829,17 +830,20 @@ def _compose_result_html(meta: dict, hero_html: str, top3_html: str, risk_html: 
 """.strip()
 
 
-def _zone_placeholder_html(mode: str) -> str:
-    """분석 전 존 카드 자리. 빈 공간을 두면 3열 균형이 무너져 보여 안내 카드를 채운다."""
-    view = "투수 시점 — 내가 던지는 코스" if mode == "pitcher" else "타자 시점 — 상대가 던져올 코스"
-    return f"""
-<div class="ds-zone-card ds-zone-empty">
-  <div class="ds-zone-header"><span class="ds-zone-header-en">STRIKE ZONE</span>
-    <span class="ds-zone-header-sep">|</span><span class="ds-zone-header-kr">스트라이크 존</span></div>
-  <div class="ds-zone-sub">{html.escape(view)}</div>
-  <p class="ds-zone-caption">상황을 맞춘 뒤 <b>분석 실행</b>을 누르면 이 자리에 존 보드가 그려집니다.</p>
-</div>
-""".strip()
+# 페이로드가 엔진으로 들어가는 유일한 통로. change와 load 두 곳에서 같은 것을 쓴다.
+_SCENE_UPDATE_JS = "(v) => { if (v && window.dsScene) { window.dsScene.update(JSON.parse(v)); } }"
+
+
+def _empty_scene_payload(mode: str) -> str:
+    """분석 전·모드 전환 직후의 씬. 9칸을 전부 0으로 두면 엔진이 중립색으로 그린다.
+
+    빈 문자열을 보내면 캔버스가 직전 모드의 그림을 그대로 들고 있어, 시점을 바꿨는데
+    화면은 안 바뀌는 상태가 된다. 타석(stand)은 분석 전이라 알 수 없으므로 목업과 같은
+    기본값 L을 쓴다 — 값이 전부 0이라 좌/우 어느 쪽이든 격자 모양은 같다.
+    """
+    return json.dumps(build_scene_payload(
+        mode=mode, stand="L", zone_scores={}, highlight_cell=5, metric="",
+    ))
 
 
 # ============================================================================
@@ -914,7 +918,7 @@ def _on_mode_change(mode, pitcher_id, batter_id, comment):
     next_comment = defaults[mode] if comment in defaults.values() else comment
     return (
         render_matchup_column(mode, pitcher_id, batter_id),
-        _zone_placeholder_html(mode),
+        _empty_scene_payload(mode),
         RESULT_EMPTY_HTML,
         "",
         None,
@@ -934,7 +938,16 @@ def run_analysis(
     return run_batter_analysis(batter_id, pitcher_id, *args)
 
 
-with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
+# 씬 엔진이 배경·인물 이미지를 /gradio_api/file= 로 가져간다. 목업은 base64로 인라인했지만
+# 앱에서는 1MB를 매 페이지 로드마다 실어 나를 이유가 없다.
+gr.set_static_paths(paths=[Path(__file__).resolve().parent / "ui" / "static" / "assets"])
+
+# head= 로 넣는 이유: gr.HTML 안의 <script>는 innerHTML 경로라 실행이 보장되지 않는다.
+# 대신 head는 앱 렌더보다 먼저 돌기 때문에, 엔진은 DOM 잡는 일을 mount()로 미뤄 뒀다.
+with gr.Blocks(
+    title="DiamondScout AI", css=CUSTOM_CSS,
+    head=f"<script>{scene_engine_js()}</script>",
+) as demo:
     gr.HTML(HEADER_HTML)
 
     balls_state = gr.State(0)
@@ -967,7 +980,17 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
             mode_input = gr.Radio(
                 MODE_CHOICES, value="pitcher", label="시점 모드", elem_classes=["ds-seg", "ds-seg--wide"],
             )
-            zone_html = gr.HTML(_zone_placeholder_html("pitcher"))
+            gr.HTML(render_scene_canvas())
+            # 씬은 캔버스라 Gradio가 값으로 다시 그릴 수 없다. Python이 만든 페이로드를
+            # 숨긴 텍스트박스에 실어 보내고, 그 change가 JS 엔진을 깨우는 구조다.
+            # 값의 진실 공급원은 계속 Python이고 JS는 표시만 한다(Task 4의 상태 규약과 같다).
+            scene_payload = gr.Textbox(
+                value=_empty_scene_payload("pitcher"), visible=False, elem_id="scenePayload",
+            )
+            scene_payload.change(None, scene_payload, None, js=_SCENE_UPDATE_JS)
+            # change는 초기값으로는 안 터진다. load를 걸어주지 않으면 분석 전까지 캔버스가
+            # 빈 사각형으로 남는다(엔진은 update가 와야 처음 그린다).
+            demo.load(None, scene_payload, None, js=_SCENE_UPDATE_JS)
 
             with gr.Column(elem_classes=["ds-card", "ds-ctrl-card"]):
                 gr.HTML('<div class="ds-card__title">상황 조작</div>')
@@ -1064,7 +1087,7 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
         comp.change(fn=render_matchup_column, inputs=matchup_inputs, outputs=[matchup_html])
     mode_input.change(
         fn=_on_mode_change, inputs=matchup_inputs + [comment_input],
-        outputs=[matchup_html, zone_html, result_html, report_md, result_state, status_output, comment_input],
+        outputs=[matchup_html, scene_payload, result_html, report_md, result_state, status_output, comment_input],
     )
 
     analyze_btn.click(
@@ -1075,7 +1098,7 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
             mode_input, pitcher_id_input, batter_id_input, balls_state, strikes_state, outs_state,
             inning_state, topbot_input, bases_state, us_state, them_state, comment_input,
         ],
-        outputs=[matchup_html, zone_html, result_html, report_md, result_state, status_output],
+        outputs=[matchup_html, scene_payload, result_html, report_md, result_state, status_output],
     )
 
     pdf_btn.click(

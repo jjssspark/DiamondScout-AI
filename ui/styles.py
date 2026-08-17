@@ -420,4 +420,84 @@ body {
 @media (prefers-reduced-motion: reduce) {
     * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
+
+/* ============================================================================
+   캔버스 스트라이크 존 씬 (Task 5Z)
+   목업 output/mockups/dugout-console.html에서 이식. 목업은 var(--navy) 같은 토큰을
+   썼지만 이 파일은 리터럴 색상을 쓰므로 같은 값으로 바꿔 넣었다.
+   ============================================================================ */
+
+/* 화면에는 안 보이지만 스크린리더는 읽는 텍스트 */
+.ds-sr {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* 배경 래스터 → 캔버스 오버레이 → 클릭 레이어 순으로 쌓인다. 세 레이어가 같은 박스를
+   채우므로 카메라만 맞으면 픽셀 단위로 정렬된다. aspect-ratio를 빼면 캔버스가 컬럼을
+   넘쳐 타자가 잘린다 — 520x600 비율이 카메라 상수와 한 세트다. */
+.ds-scene {
+    position: relative;
+    width: 100%;
+    max-width: 520px;
+    margin: 0 auto;
+    aspect-ratio: 520 / 600;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid #e6e1d3;
+    background: #f4f2ec;
+}
+
+.ds-scene__canvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+    z-index: 1;
+}
+
+/* 존 위 직접 클릭(마우스 보조). 단일 면이라 탭 타깃 규칙과 무관하고,
+   실제 조작·접근성은 아래 .ds-coursepad(44px 버튼 9개)가 담당한다. */
+.ds-scene__cells { position: absolute; inset: 0; z-index: 2; cursor: crosshair; }
+
+/* 코스 미리보기 패드 — 화면에 보이는 존과 같은 좌우 배열로 그린다.
+   시점이 바뀌면 몸쪽/바깥쪽 열도 같이 뒤집힌다. */
+.ds-coursepad {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(44px, 1fr));
+    gap: 4px;
+    max-width: 216px;
+    margin: 10px auto 0;
+}
+
+.ds-coursebtn {
+    min-height: 44px;
+    padding: 2px 1px;
+    border: 1.5px solid #14203c;
+    border-radius: 6px;
+    background: transparent;
+    color: #14203c;
+    font-size: 10.5px;
+    font-weight: 800;
+    line-height: 1.25;
+    cursor: pointer;
+    transition: background .14s ease, color .14s ease;
+}
+.ds-coursebtn:hover { background: #14203c0f; }
+.ds-coursebtn.is-on { background: #c8102e; border-color: #c8102e; color: #ffffff; }
+
+.ds-coursepad__cap {
+    grid-column: 1 / -1;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .1em;
+    color: #6b6555;
+    text-transform: uppercase;
+    text-align: center;
+    margin-bottom: 2px;
+}
+
+@media (max-width: 900px) {
+    .ds-scene { max-width: 230px; }
+}
 """
