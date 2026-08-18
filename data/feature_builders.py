@@ -164,17 +164,35 @@ def add_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_batter_matchup_features(
-    train_df: pd.DataFrame, raw_profile: pd.DataFrame
+    train_df: pd.DataFrame, events: pd.DataFrame
 ) -> pd.DataFrame:
-    """타자 x 구종 반응 지표를 타자 단위로 요약한다.
+    """타자 x 구종 반응 지표를 타자 단위 스칼라 4개로 요약한다.
 
-    train split에 등장한 타자만 사용한다 — 그래야 누수가 없다.
-    raw_profile은 data/processed/batter_matchup_profile_{year}.csv 형식이다.
+    train 경기만 집계한다. batter_matchup_profile_{year}.csv를 쓰면 안 되는 이유는
+    거기 비율이 이미 연도 전체로 계산돼 있어서다 - 어느 타자를 쓸지만 train으로
+    걸러도 비율 자체에 val/test 경기의 반응이 들어간다. events는 (타자, 경기, 구종)
+    카운트라 train 경기만 떼어낼 수 있다.
+
+    구종별 비율을 낸 뒤 구종 축으로 평균/최대를 낸다. 구종 축을 살려서 펴는 것도
+    해봤지만 이득이 없었다 - build_batter_pitch_matchup과 docs/PERFORMANCE.md 참고.
     """
-    train_batters = set(train_df["batter"].unique())
-    prof = raw_profile[raw_profile["batter"].isin(train_batters)]
+    # 두 조건을 다 건다. 경기만 거르면 train 경기에 나왔지만 학습 행에는 없는 타자가
+    # 남아서, 폴백으로 쓰는 평균을 학습이 본 적 없는 타자들이 밀어버린다.
+    ev = events[
+        events["game_pk"].isin(set(train_df["game_pk"].unique()))
+        & events["batter"].isin(set(train_df["batter"].unique()))
+    ]
+    cell = (
+        ev.groupby(["batter", "pitch_label_id"])[["n", "whiff_n", "hardhit_n", "xbh_n"]]
+        .sum()
+        .reset_index()
+    )
+    cell["whiff_rate"] = cell["whiff_n"] / cell["n"]
+    cell["hard_hit_rate"] = cell["hardhit_n"] / cell["n"]
+    cell["extra_base_hit_rate"] = cell["xbh_n"] / cell["n"]
+
     return (
-        prof.groupby("batter")
+        cell.groupby("batter")
         .agg(
             batter_whiff_avg=("whiff_rate", "mean"),
             batter_hardhit_avg=("hard_hit_rate", "mean"),

@@ -21,6 +21,7 @@ def _train():
     return pd.DataFrame({
         "pitcher": [100, 100, 100, 100],
         "batter": [10, 10, 11, 11],
+        "game_pk": [1, 1, 1, 1],
         "balls": [0, 0, 0, 0], "strikes": [0, 0, 0, 0],
         "target_pitch_label_id": [0, 0, 0, 1],
     })
@@ -119,55 +120,77 @@ def test_priors_keep_a_column_per_label():
         assert f"count_prior_{i}" in result.columns
 
 
-def _profile():
+def _events():
+    """(타자, 경기, 구종) 카운트. 게임 1이 train, 게임 9는 밖이다."""
     return pd.DataFrame({
-        "batter": [10, 11],
-        "whiff_rate": [0.1, 0.3],
-        "hard_hit_rate": [0.4, 0.2],
-        "extra_base_hit_rate": [0.05, 0.01],
+        "batter":         [10,  11],
+        "game_pk":        [1,   1],
+        "pitch_label_id": [0,   0],
+        "n":              [100, 100],
+        "whiff_n":        [10,  30],
+        "hardhit_n":      [40,  20],
+        "xbh_n":          [5,   1],
     })
 
 
 def test_batter_features_fall_back_to_train_mean_for_unseen_batter():
     test = pd.DataFrame({
-        "pitcher": [100], "batter": [777], "balls": [0], "strikes": [0],
+        "pitcher": [100], "batter": [777], "game_pk": [1], "balls": [0], "strikes": [0],
         "target_pitch_label_id": [0],
     })
 
-    result = attach_priors(test, _train(), LABEL_IDS, batter_profile=_profile())
+    result = attach_priors(test, _train(), LABEL_IDS, batter_events=_events())
 
     assert not result["batter_whiff_avg"].isna().any()
     # train 타자 평균 (0.1 + 0.3) / 2
     assert result["batter_whiff_avg"].iloc[0] == pytest.approx(0.2)
 
 
-def test_batter_profile_rows_outside_train_do_not_shift_the_fallback():
-    """프로파일 CSV에는 test 타자도 들어 있다. 폴백 평균이 그 값까지 쓰면
-    test 정보가 train 피처로 새어 들어간다."""
-    profile = pd.concat([
-        _profile(),
-        pd.DataFrame({"batter": [777], "whiff_rate": [0.9],
-                      "hard_hit_rate": [0.9], "extra_base_hit_rate": [0.9]}),
+def test_batter_events_outside_train_do_not_shift_the_fallback():
+    """이벤트 표에는 val/test 경기도 들어 있다. 폴백 평균이 그 값까지 쓰면
+    미래 경기 정보가 train 피처로 새어 들어간다."""
+    events = pd.concat([
+        _events(),
+        # 게임 9(train 밖)에서 타자 10이 라벨0을 100구 중 90번 헛스윙
+        pd.DataFrame({"batter": [10], "game_pk": [9], "pitch_label_id": [0],
+                      "n": [100], "whiff_n": [90], "hardhit_n": [0], "xbh_n": [0]}),
     ], ignore_index=True)
     test = pd.DataFrame({
-        "pitcher": [100], "batter": [777], "balls": [0], "strikes": [0],
+        "pitcher": [100], "batter": [777], "game_pk": [1], "balls": [0], "strikes": [0],
         "target_pitch_label_id": [0],
     })
 
-    result = attach_priors(test, _train(), LABEL_IDS, batter_profile=profile)
+    result = attach_priors(test, _train(), LABEL_IDS, batter_events=events)
+
+    assert result["batter_whiff_avg"].iloc[0] == pytest.approx(0.2)
+
+
+def test_batter_events_from_batters_outside_train_do_not_shift_the_fallback():
+    """train 경기에 나왔지만 학습 행에는 없는 타자도 폴백에 섞이면 안 된다."""
+    events = pd.concat([
+        _events(),
+        pd.DataFrame({"batter": [999], "game_pk": [1], "pitch_label_id": [0],
+                      "n": [100], "whiff_n": [90], "hardhit_n": [0], "xbh_n": [0]}),
+    ], ignore_index=True)
+    test = pd.DataFrame({
+        "pitcher": [100], "batter": [777], "game_pk": [1], "balls": [0], "strikes": [0],
+        "target_pitch_label_id": [0],
+    })
+
+    result = attach_priors(test, _train(), LABEL_IDS, batter_events=events)
 
     assert result["batter_whiff_avg"].iloc[0] == pytest.approx(0.2)
 
 
 def test_attach_priors_does_not_mutate_inputs():
-    train, profile = _train(), _profile()
-    train_before, profile_before = train.copy(), profile.copy()
+    train, events = _train(), _events()
+    train_before, events_before = train.copy(), events.copy()
     test = pd.DataFrame({
-        "pitcher": [100], "batter": [10], "balls": [0], "strikes": [0],
+        "pitcher": [100], "batter": [10], "game_pk": [1], "balls": [0], "strikes": [0],
         "target_pitch_label_id": [0],
     })
 
-    attach_priors(test, train, LABEL_IDS, batter_profile=profile)
+    attach_priors(test, train, LABEL_IDS, batter_events=events)
 
     pd.testing.assert_frame_equal(train, train_before)
-    pd.testing.assert_frame_equal(profile, profile_before)
+    pd.testing.assert_frame_equal(events, events_before)

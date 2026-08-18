@@ -1,16 +1,16 @@
 {
   "n_features": 88,
   "best_iteration": 89,
-  "train_seconds": 42.353264790999674,
-  "model_size_mb": 9.888184547424316,
+  "train_seconds": 102.19805254200037,
+  "model_size_mb": 9.888270378112793,
   "validation": {
-    "top1_accuracy": 0.4401937799308881,
-    "top3_accuracy": 0.8606873409704552,
+    "top1_accuracy": 0.43953821709130103,
+    "top3_accuracy": 0.8606984522050245,
     "n_samples": 89999
   },
   "test": {
-    "top1_accuracy": 0.4371172021622108,
-    "top3_accuracy": 0.8572648708180214,
+    "top1_accuracy": 0.43615072541946215,
+    "top3_accuracy": 0.8573884899362799,
     "n_samples": 88983
   }
 }

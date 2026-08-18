@@ -34,8 +34,8 @@ def attach_priors(
     target_df: pd.DataFrame,
     train_df: pd.DataFrame,
     label_ids: list[int],
-    batter_profile: pd.DataFrame | None = None,
     batter_events: pd.DataFrame | None = None,
+    with_batter_pitch: bool = False,
 ) -> pd.DataFrame:
     """train에서 집계한 prior를 target_df에 조인한다.
 
@@ -54,15 +54,15 @@ def attach_priors(
         # 카운트 prior가 없으면 그 투수의 아스널로 (그것도 없었으면 이미 리그 평균)
         out[f"count_prior_{i}"] = out[f"count_prior_{i}"].fillna(out[f"pitcher_prior_{i}"])
 
-    if batter_profile is not None:
-        batter_feats = build_batter_matchup_features(train_df, batter_profile)
+    if batter_events is not None:
+        batter_feats = build_batter_matchup_features(train_df, batter_events)
         out = out.merge(batter_feats, on="batter", how="left")
         for col in BATTER_FEATURE_COLS:
-            # 폴백은 train 타자만의 평균이다. batter_profile 전체 평균을 쓰면
-            # test 타자의 성적이 train 피처로 새어 들어간다.
+            # 폴백은 train 타자만의 평균이다. 전체 타자로 평균을 내면 test 타자의
+            # 성적이 train 피처로 새어 들어간다.
             out[col] = out[col].fillna(batter_feats[col].mean())
 
-    if batter_events is not None:
+    if batter_events is not None and with_batter_pitch:
         bp = build_batter_pitch_matchup(train_df, batter_events, label_ids)
         out = out.merge(bp, on="batter", how="left")
         # 처음 보는 타자는 train 타자 평균. 여기도 폴백 통계를 train에서만 뽑는다.
@@ -74,9 +74,9 @@ def attach_priors(
 def save_serving_priors(
     train_df: pd.DataFrame,
     label_ids: list[int],
-    batter_profile: pd.DataFrame | None,
+    batter_events: pd.DataFrame | None,
     out_dir: str,
-    batter_events: pd.DataFrame | None = None,
+    with_batter_pitch: bool = False,
 ) -> None:
     """서빙이 쓸 prior 테이블을 그대로 내보낸다.
 
@@ -97,11 +97,11 @@ def save_serving_priors(
     # 타자 피처는 한 파일에 모은다. 서빙은 batter 하나로 조회하므로 표를 나누면
     # 룩업만 늘고 두 표가 어긋날 여지가 생긴다.
     batter_table = None
-    if batter_profile is not None:
-        batter_table = build_batter_matchup_features(train_df, batter_profile)
     if batter_events is not None:
-        bp = build_batter_pitch_matchup(train_df, batter_events, label_ids)
-        batter_table = bp if batter_table is None else batter_table.merge(bp, on="batter", how="outer")
+        batter_table = build_batter_matchup_features(train_df, batter_events)
+        if with_batter_pitch:
+            bp = build_batter_pitch_matchup(train_df, batter_events, label_ids)
+            batter_table = batter_table.merge(bp, on="batter", how="outer")
     if batter_table is not None:
         batter_table.to_csv(os.path.join(out_dir, "batter_features.csv"), index=False)
     with open(os.path.join(out_dir, "league_prior.json"), "w", encoding="utf-8") as f:
@@ -127,16 +127,17 @@ def build_enriched_splits(root: str, year: int, with_batter_pitch: bool = False)
         label_ids = sorted(int(k) for k in json.load(f)["id_to_label"])
 
     processed = os.path.join(root, "data", "processed")
-    profile_path = os.path.join(processed, f"batter_matchup_profile_{year}.csv")
-    batter_profile = pd.read_csv(profile_path) if os.path.exists(profile_path) else None
 
-    # 타자 x 구종 피처는 기본으로 끈다. 측정 결과 이득이 없었다 - test top1이
-    # 33열에서 -0.21%p(McNemar p=0.023), whiff 11열로 줄여도 -0.11%p였다.
-    # 재현하려면 --with-batter-pitch로 켠다. output/metrics/batter_pitch_gain_2025.json 참고.
-    batter_events = None
-    if with_batter_pitch:
-        events_path = os.path.join(processed, f"batter_matchup_events_{year}.csv")
-        batter_events = pd.read_csv(events_path) if os.path.exists(events_path) else None
+    # 타자 피처는 전부 이 표에서 나온다. (타자, 경기, 구종) 카운트라 train 경기만
+    # 잘라 집계할 수 있다. 없으면 조용히 피처를 빼는 대신 죽는다 - 피처가 빠진 채로
+    # 학습되면 서빙 모델과 입력이 어긋나는데 그건 에러 없이 정확도만 깎는다.
+    events_path = os.path.join(processed, f"batter_matchup_events_{year}.csv")
+    if not os.path.exists(events_path):
+        raise FileNotFoundError(
+            f"{events_path}가 없다. 먼저 전처리를 돌릴 것: "
+            f"python data/preprocess_statcast.py --year {year}"
+        )
+    batter_events = pd.read_csv(events_path)
 
     df = add_temporal_features(df)
     train_df, val_df, test_df = time_based_split(df)
@@ -144,12 +145,12 @@ def build_enriched_splits(root: str, year: int, with_batter_pitch: bool = False)
     # 서빙 prior를 여기서 같이 내보낸다. 따로 만들 수 있게 두면 언젠가 학습 데이터와
     # 어긋나는데, prior가 모델 gain의 81%라 그 순간 정확도가 조용히 무너진다.
     save_serving_priors(
-        train_df, label_ids, batter_profile,
-        os.path.join(root, "models", "serving_priors"), batter_events,
+        train_df, label_ids, batter_events,
+        os.path.join(root, "models", "serving_priors"), with_batter_pitch,
     )
 
     return tuple(
-        attach_priors(split, train_df, label_ids, batter_profile, batter_events)
+        attach_priors(split, train_df, label_ids, batter_events, with_batter_pitch)
         for split in (train_df, val_df, test_df)
     )
 

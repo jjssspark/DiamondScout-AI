@@ -25,6 +25,8 @@ def _train_df():
     return pd.DataFrame({
         "pitcher": [100, 100, 100, 100, 200, 200, 200, 200],
         "batter":  [10, 10, 11, 11, 12, 12, 13, 13],
+        # game_pk는 타자 피처가 train 경기만 집계하는지 확인하는 데 쓴다
+        "game_pk": [1, 1, 2, 2, 1, 1, 2, 2],
         "balls":   [0, 0, 1, 1, 0, 0, 1, 1],
         "strikes": [0, 0, 0, 0, 0, 0, 0, 0],
         "target_pitch_label_id": [0, 0, 0, 1, 1, 1, 2, 2],
@@ -89,40 +91,55 @@ def test_count_prior_covers_every_observed_count():
     assert observed == produced
 
 
-def _raw_batter_profile():
+def _batter_events():
+    """(타자, 경기, 구종) 카운트. 게임 1,2가 train이고 게임 9는 밖이다.
+
+    타자 10: 라벨0을 100구 보고 10번 헛스윙(0.1), 라벨1을 100구 보고 30번(0.3).
+    타자 99: train에 없는 타자.
+    """
     return pd.DataFrame({
-        "batter": [10, 10, 11, 99],
-        "pitch_label": ["FF", "SL", "FF", "FF"],
-        "whiff_rate": [0.1, 0.3, 0.2, 0.9],
-        "hard_hit_rate": [0.4, 0.2, 0.3, 0.1],
-        "extra_base_hit_rate": [0.05, 0.01, 0.02, 0.5],
+        "batter":         [10,  10,  11,  99,  10],
+        "game_pk":        [1,   1,   2,   1,   9],
+        "pitch_label_id": [0,   1,   0,   0,   0],
+        "n":              [100, 100, 100, 100, 100],
+        "whiff_n":        [10,  30,  20,  50,  99],
+        "hardhit_n":      [40,  20,  30,  10,  0],
+        "xbh_n":          [5,   1,   2,   50,  0],
     })
 
 
 def test_batter_features_use_only_train_batters():
-    """train에 없는 타자 99는 집계에서 빠져야 한다."""
-    result = build_batter_matchup_features(_train_df(), _raw_batter_profile())
+    """train 경기에 안 나온 타자 99는 집계에서 빠져야 한다."""
+    result = build_batter_matchup_features(_train_df(), _batter_events())
 
     assert 99 not in set(result["batter"])
 
 
+def test_batter_features_ignore_games_outside_train():
+    """게임 9에서 타자 10이 라벨0을 100구 중 99번 헛스윙했다.
+    반영되면 whiff_max가 0.3에서 크게 튄다."""
+    result = build_batter_matchup_features(_train_df(), _batter_events()).set_index("batter")
+
+    assert result.loc[10, "batter_whiff_max"] == pytest.approx(0.3)
+
+
 def test_batter_whiff_max_takes_worst_pitch():
-    result = build_batter_matchup_features(_train_df(), _raw_batter_profile()).set_index("batter")
+    result = build_batter_matchup_features(_train_df(), _batter_events()).set_index("batter")
 
     assert result.loc[10, "batter_whiff_max"] == pytest.approx(0.3)
     assert result.loc[10, "batter_whiff_avg"] == pytest.approx(0.2)
 
 
 def test_builders_do_not_mutate_inputs():
-    train, profile = _train_df(), _raw_batter_profile()
-    train_before, profile_before = train.copy(), profile.copy()
+    train, events = _train_df(), _batter_events()
+    train_before, events_before = train.copy(), events.copy()
 
     build_pitcher_prior(train, LABEL_IDS)
     build_count_prior(train, LABEL_IDS)
-    build_batter_matchup_features(train, profile)
+    build_batter_matchup_features(train, events)
 
     pd.testing.assert_frame_equal(train, train_before)
-    pd.testing.assert_frame_equal(profile, profile_before)
+    pd.testing.assert_frame_equal(events, events_before)
 
 
 # --- 시간 · 피로 피처 ---------------------------------------------------------
