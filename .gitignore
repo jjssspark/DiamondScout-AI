@@ -26,6 +26,15 @@ build/
 # 산출물
 output/*
 !output/screenshots/
+# 목업은 UI 승인 근거라 히스토리에 남긴다. 마젠타 원본(장당 1.2~1.5MB)은 제외하고
+# 크로마키 처리된 cut-*.png만 포함.
+!output/mockups/
+output/mockups/*
+!output/mockups/dugout-console.html
+!output/mockups/gemini-batter-scene-prompt.md
+!output/mockups/assets/
+output/mockups/assets/*
+!output/mockups/assets/cut-*.png
 reports/
 uploads/
 *.zip
@@ -34,14 +43,14 @@ uploads/
 # 대용량 데이터·모델 (git 저장소 무게 관리, GitHub 100MB 제한)
 data/raw/
 data/processed/next_pitch_dataset_*.csv
+# 타자 x 구종 이벤트 표(4.9MB). 기본 파이프라인은 안 쓴다 - 미채택된 실험을
+# --with-batter-pitch로 재현할 때만 필요하고, preprocess_statcast.py로 다시 만들 수 있다.
+data/processed/batter_matchup_events_*.csv
+data/processed/enriched_*.parquet
 data/processed/model_outputs/
 models/*.joblib
 models/*.keras
 docs/*.pdf
-
-# 배포판(Render 무료 티어)이 런타임에 읽어야 하므로 축소 모델만 예외로 추적한다.
-# 원본 모델(188MB)은 계속 제외 - scripts/train_deploy_model.py로 재현한다.
-!models/next_pitch_model_deploy.joblib
 
 # Gradio 자동 생성 캐시
 .gradio/

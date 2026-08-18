@@ -1,0 +1,16 @@
+{
+  "n_features_baseline": 56,
+  "n_features_enriched": 88,
+  "baseline_top1": 0.3953676544958026,
+  "baseline_top3": 0.7874762595102436,
+  "enriched_top1": 0.4216198599732533,
+  "enriched_top3": 0.8351595248530618,
+  "delta_top1": 0.02625220547745072,
+  "delta_top3": 0.04768326534281819,
+  "n_test": 88983,
+  "n_train": 414815,
+  "fit_seconds": {
+    "baseline": 62.2,
+    "enriched": 53.2
+  }
+}

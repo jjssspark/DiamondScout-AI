@@ -1,5 +1,6 @@
 # Render Blueprint - 무료 티어 공개 데모 배포 설정.
-# 무료 인스턴스는 512MB RAM이라 축소 모델(PITCH_MODEL_FILE)과 경량 의존성을 쓴다.
+# 무료 인스턴스는 512MB RAM이라 경량 의존성을 쓴다. 모델은 LightGBM 9.9MB +
+# GRU 61KB로 축소 티어를 따로 둘 이유가 없어졌다(예전에는 38MB RF를 따로 만들었다).
 # 15분 무활동 시 슬립하므로 첫 요청은 콜드 스타트가 걸린다.
 services:
   - type: web
@@ -11,9 +12,6 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.13"
-      # 188MB 원본 대신 38MB 축소 모델을 로드한다(top-1 -0.55%p, top-3 -1.33%p).
-      - key: PITCH_MODEL_FILE
-        value: next_pitch_model_deploy.joblib
       # 로컬은 Ollama, 배포판은 Groq hosted LLM(ADR-0002 후속 결정).
       - key: LLM_BACKEND
         value: groq

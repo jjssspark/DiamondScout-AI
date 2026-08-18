@@ -7,9 +7,16 @@ raw 데이터는 읽기만 하며 수정하지 않는다.
 import argparse
 import json
 import os
+import sys
 
 import numpy as np
 import pandas as pd
+
+# `python data/preprocess_statcast.py`로 직접 실행하면 sys.path[0]이 data/라서
+# data 패키지를 못 찾는다. 루트를 넣어 실행 방식과 무관하게 동작시킨다.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from data.player_names import attach_player_names
 
 RARE_PITCH_MIN_COUNT = 1000
 LOOKBACK = 5
@@ -152,10 +159,17 @@ def build_next_pitch_dataset(df: pd.DataFrame) -> pd.DataFrame:
             work[lag_col] = grouped[col].shift(lag)
             lag_feature_cols.append(lag_col)
 
+    # 직전 투구의 결과. dropna보다 먼저 계산해야 한다 — 앞 5구가 잘려나간
+    # 프레임에서 shift(1)을 하면 실제 직전 투구가 아닌 값을 집는다.
+    work["prev_pitch_outcome"] = grouped["pitch_result_group"].shift(1).fillna("none")
+
     work = work.dropna(subset=lag_feature_cols).copy()
     work["target_pitch_label_id"] = work["pitch_label_id"]
 
-    out_cols = id_cols + current_context_cols + lag_feature_cols + ["target_pitch_label_id"]
+    out_cols = (
+        id_cols + current_context_cols + lag_feature_cols
+        + ["prev_pitch_outcome", "target_pitch_label_id"]
+    )
     return work[out_cols].reset_index(drop=True)
 
 
@@ -192,7 +206,40 @@ def build_zone_risk_profile(df: pd.DataFrame) -> pd.DataFrame:
     return g.sort_values(["pitcher", "pitch_label", "zone_cell"]).reset_index(drop=True)
 
 
-def build_batter_matchup_profile(df: pd.DataFrame) -> pd.DataFrame:
+def build_batter_matchup_events(df: pd.DataFrame) -> pd.DataFrame:
+    """타자 x 구종 반응을 **경기 단위 카운트**로 남긴다.
+
+    batter_matchup_profile은 이미 비율로 집계돼 있어서 나중에 train 구간만 잘라낼 수
+    없다. split이 game_pk 기준이므로 game_pk를 남겨 두면 소비하는 쪽에서 train 경기만
+    골라 집계할 수 있다 - 그래야 타자 반응률에 미래 경기가 섞이지 않는다.
+
+    비율이 아니라 분자·분모를 그대로 남기는 이유: 여러 경기를 합칠 때 비율의 평균은
+    표본 크기를 무시해서 1구만 본 경기와 20구 본 경기를 같은 무게로 센다.
+    """
+    return (
+        df.groupby(["batter", "game_pk", "pitch_label_id"])
+        .agg(
+            n=("pitch_label_id", "size"),
+            whiff_n=("is_whiff", "sum"),
+            hardhit_n=("hard_hit", "sum"),
+            xbh_n=("is_extra_base_hit", "sum"),
+        )
+        .reset_index()
+        .sort_values(["batter", "game_pk", "pitch_label_id"])
+        .reset_index(drop=True)
+    )
+
+
+def _load_player_names(processed_dir: str) -> pd.DataFrame | None:
+    """이름 표가 아직 없으면 None. 그러면 프로필에 player_name 컬럼이 안 붙고
+    화면은 기존대로 'Batter ID {id}' 폴백을 쓴다. 전처리를 막지는 않는다."""
+    path = os.path.join(processed_dir, "player_names.csv")
+    return pd.read_csv(path) if os.path.exists(path) else None
+
+
+def build_batter_matchup_profile(df: pd.DataFrame, names: pd.DataFrame | None = None) -> pd.DataFrame:
+    """names를 주면 player_name 컬럼을 붙인다. raw의 player_name은 투수 이름이라
+    타자 이름은 별도 룩업에서 온다(data/player_names.py)."""
     g = df.groupby(["batter", "stand", "p_throws", "pitch_label"]).agg(
         pitch_count=("pitch_label", "size"),
         whiff_rate=("is_whiff", "mean"),
@@ -202,7 +249,10 @@ def build_batter_matchup_profile(df: pd.DataFrame) -> pd.DataFrame:
         extra_base_hit_rate=("is_extra_base_hit", "mean"),
         avg_delta_run_exp=("delta_run_exp", "mean"),
     ).reset_index()
-    return g.sort_values(["batter", "stand", "p_throws", "pitch_label"]).reset_index(drop=True)
+    g = g.sort_values(["batter", "stand", "p_throws", "pitch_label"]).reset_index(drop=True)
+    if names is not None:
+        g = attach_player_names(g, names, id_col="batter")
+    return g
 
 
 def process_year(root: str, year: int) -> None:
@@ -225,7 +275,8 @@ def process_year(root: str, year: int) -> None:
         f"pitcher_pitch_profile_{year}.csv": build_pitcher_pitch_profile(df),
         f"count_pitch_profile_{year}.csv": build_count_pitch_profile(df),
         f"zone_risk_profile_{year}.csv": build_zone_risk_profile(df),
-        f"batter_matchup_profile_{year}.csv": build_batter_matchup_profile(df),
+        f"batter_matchup_profile_{year}.csv": build_batter_matchup_profile(df, _load_player_names(processed_dir)),
+        f"batter_matchup_events_{year}.csv": build_batter_matchup_events(df),
     }
     for filename, out_df in outputs.items():
         path = os.path.join(processed_dir, filename)

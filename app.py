@@ -12,27 +12,49 @@ services/scouting_service.py의 ScoutingService를 사용해 "내가 투수라�
     (이 프로젝트는 venv를 쓰므로 실제로는 ./venv/bin/python app.py 로 실행)
 """
 
+import html
+import json
 import os
 import re
 import textwrap
 from datetime import datetime
+from pathlib import Path
 
 import gradio as gr
-import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
-from matplotlib.patches import Ellipse, FancyBboxPatch
 
 from services.scouting_service import (
-    ZONE_COL_OF_CELL,
-    ZONE_ROW_OF_CELL,
     ScoutingRequest,
     ScoutingService,
     get_batter_display,
     pitch_label_kr,
 )
+from ui.console import (
+    MAX_BALLS,
+    MAX_OUTS,
+    MAX_STRIKES,
+    cycle_value,
+    render_base_diamond,
+    render_count_lamps,
+    render_player_card,
+    render_scoreboard,
+    toggle_base,
+)
+from ui.result_panel import (
+    RISK_LABELS_KR,
+    _risk_summary_line,
+    render_analysis_status,
+    render_hero_recommend_card,
+    render_insight_card,
+    render_risk_badges,
+    render_top3_gauges,
+    risk_level,
+)
+from ui.scene import build_scene_payload, render_scene_canvas, scene_engine_js
+from ui.styles import CUSTOM_CSS
+from ui.zone_heatmap import _zone_hand_label
 
 # matplotlib 기본 폰트(DejaVu Sans)는 한글 글리프가 없어 히트맵/위치 그래프의 한글 라벨이
 # 깨지므로(빈 네모) macOS 기본 한글 폰트로 지정한다. AppleGothic 단독으로는 í/ó/ñ 같은 라틴
@@ -153,553 +175,6 @@ def _build_context(balls, strikes, outs, inning, topbot_kr, on1b, on2b, on3b, sc
 
 
 # ============================================================================
-# 위험도 카드 (JSON 대신 사람이 읽는 카드/게이지 표시)
-# ============================================================================
-
-RISK_THRESHOLDS = {
-    "pattern_exposure_risk": (0.35, 0.55),
-    "extra_base_hit_risk": (0.05, 0.09),
-    "home_run_risk": (0.02, 0.035),
-    "walk_risk": (0.35, 0.45),
-}
-RISK_LABELS_KR = {
-    "pattern_exposure_risk": "패턴 노출 위험",
-    "extra_base_hit_risk": "장타 위험",
-    "home_run_risk": "홈런 위험",
-    "walk_risk": "볼넷 위험",
-}
-
-
-def risk_level(key: str, value: float | None) -> tuple[str, str, int]:
-    """(등급 낮음/보통/높음, 색상, 0~100 점수)를 반환한다. 값이 없으면 '데이터 부족'."""
-    if value is None:
-        return "데이터 부족", "#9e9e9e", 0
-    low, high = RISK_THRESHOLDS[key]
-    pct = max(0, min(100, round(value * 100)))
-    if value < low:
-        return "낮음", "#1f8a4c", pct
-    if value < high:
-        return "보통", "#b8860b", pct
-    return "높음", "#c8102e", pct
-
-
-def render_risk_cards(risk_summary: dict) -> str:
-    cards = []
-    for key, label_kr in RISK_LABELS_KR.items():
-        value = risk_summary.get(key)
-        level, color, pct = risk_level(key, value)
-        value_text = "데이터 부족" if value is None else f"{value:.1%}"
-        cards.append(f"""
-        <div style="flex:1; min-width:150px; border:1px solid {color}55; border-radius:14px; padding:16px 18px; margin:4px;
-                    background:#ffffff; box-shadow: 0 2px 8px rgba(20,32,60,0.06);">
-          <div style="font-size:14px; color:#6b6555;">{label_kr}</div>
-          <div style="font-size:22px; font-weight:800; color:{color}; margin:4px 0;">{level}</div>
-          <div style="font-size:13px; color:#6b6555;">{value_text}</div>
-          <div style="background:#f0ece0; border-radius:6px; height:9px; margin-top:10px;">
-            <div style="background:{color}; width:{pct}%; height:9px; border-radius:6px;"></div>
-          </div>
-        </div>""")
-    return f'<div style="display:flex; flex-wrap:wrap; gap:8px;">{"".join(cards)}</div>'
-
-
-def _risk_summary_line(label_kr: str, value: float | None, key: str) -> str:
-    level, _, _ = risk_level(key, value)
-    if value is None:
-        return f"- {label_kr}: 데이터 부족"
-    return f"- {label_kr}: {level} ({value:.1%})"
-
-
-# ============================================================================
-# HOT & COLD ZONE 시각화 (3x3 스트라이크존 + 바깥쪽 영역)
-# ============================================================================
-
-def _hotcold_grid(zone_scores: dict[int, float]) -> np.ndarray:
-    """zone_cell 0(존 밖)~9를 5x5 격자로 변환한다. 바깥 테두리 16칸은 존 밖 점수로 채우고,
-    가운데 3x3(1~9)만 실제 구역별 값을 채운다."""
-    grid = np.full((5, 5), zone_scores.get(0, 0.0))
-    for cell in range(1, 10):
-        r, c = ZONE_ROW_OF_CELL[cell], ZONE_COL_OF_CELL[cell]
-        grid[1 + r, 1 + c] = zone_scores.get(cell, 0.0)
-    return grid
-
-
-def _draw_ground_background(ax) -> None:
-    """스트라이크존 격자(imshow, zorder=2) 뒤쪽 여백에 어두운 그라운드 톤 타원을 깔아, 미래지향적인
-    다크 테마 안에서도 실루엣/홈플레이트가 붕 뜬 것처럼 보이지 않게 한다."""
-    ax.add_patch(Ellipse((2.0, -0.5), width=9.6, height=4.8, facecolor="#132018", edgecolor="none", zorder=1))
-    ax.add_patch(Ellipse((2.0, -0.5), width=9.6, height=4.8, facecolor="none", edgecolor="#22c55e", alpha=0.18, linewidth=10, zorder=1))
-
-
-def _draw_batter_silhouette(ax, side: str, y_center: float = 1.55) -> None:
-    """헬멧/상체/팔/다리/배트를 갖춘 타격 자세 실루엣을 채워진 도형으로 그린다(막대인간 금지).
-    side="left"/"right"는 실루엣이 서는 화면 쪽이며, 타자는 항상 스트라이크존(화면 중앙) 쪽을
-    바라보는 타격 자세로 그려진다. 좌/우 어느 쪽에 서든 같은 모양을 거울처럼 반전해 재사용한다."""
-    sign = 1.0 if side == "left" else -1.0
-    cx = -1.55 if side == "left" else 5.55
-
-    def pt(lx: float, ly: float) -> tuple[float, float]:
-        return (cx + sign * lx, y_center + ly)
-
-    navy = "#7c94b8"
-    navy_dark = "#4b5f7f"
-    pants_color = "#d8dee9"
-    helmet_color = "#22d3ee"
-    bat_color = "#d4a15c"
-    skin = "#e0ac7c"
-
-    # 다리(밝은 회색 유니폼 바지): 뒷다리는 곧게, 앞다리는 존 쪽으로 벌리고 굽힌 타격 자세.
-    # 상의(navy)와 톤을 분리해 "상체/하체"가 한 덩어리로 뭉쳐 보이지 않게 한다.
-    ax.add_patch(plt.Polygon([pt(-0.30, 0.05), pt(-0.08, 0.05), pt(-0.14, -0.95), pt(-0.34, -0.95)],
-                              closed=True, facecolor=pants_color, edgecolor="none", zorder=5))
-    ax.add_patch(plt.Polygon([pt(0.06, 0.05), pt(0.30, 0.05), pt(0.46, -0.95), pt(0.20, -0.95)],
-                              closed=True, facecolor=pants_color, edgecolor="none", zorder=5))
-    # 신발
-    ax.add_patch(plt.Polygon([pt(-0.36, -0.95), pt(-0.10, -0.95), pt(-0.10, -1.06), pt(-0.40, -1.06)],
-                              closed=True, facecolor=navy_dark, edgecolor="none", zorder=5))
-    ax.add_patch(plt.Polygon([pt(0.16, -0.95), pt(0.48, -0.95), pt(0.52, -1.06), pt(0.18, -1.06)],
-                              closed=True, facecolor=navy_dark, edgecolor="none", zorder=5))
-    # 몸통 (허리보다 어깨가 넓은 사다리꼴 유니폼 상의)
-    ax.add_patch(plt.Polygon([pt(-0.22, 0.05), pt(0.10, 0.05), pt(0.34, 0.85), pt(-0.06, 0.90)],
-                              closed=True, facecolor=navy, edgecolor="none", zorder=5))
-    # 벨트 라인: 상의/하의 경계를 얇은 선으로 또렷하게 구분해 유니폼처럼 보이게 한다.
-    ax.add_patch(plt.Polygon([pt(-0.24, 0.02), pt(0.12, 0.02), pt(0.12, 0.08), pt(-0.24, 0.08)],
-                              closed=True, facecolor=navy_dark, edgecolor="none", zorder=5.2))
-    # 팔: 두 손이 가슴 앞에 모여 배트를 쥔 "타격 준비 자세". 뒤쪽 팔을 먼저 그려 앞쪽 팔에
-    # 자연스럽게 가려지게 한다.
-    ax.plot([pt(-0.06, 0.82)[0], pt(0.16, 0.62)[0], pt(0.32, 0.68)[0]],
-            [pt(-0.06, 0.82)[1], pt(0.16, 0.62)[1], pt(0.32, 0.68)[1]],
-            color=navy_dark, linewidth=6, solid_capstyle="round", zorder=5)
-    ax.plot([pt(0.18, 0.78)[0], pt(0.30, 0.60)[0], pt(0.34, 0.68)[0]],
-            [pt(0.18, 0.78)[1], pt(0.30, 0.60)[1], pt(0.34, 0.68)[1]],
-            color=navy, linewidth=7, solid_capstyle="round", zorder=6)
-    # 손(배트를 쥔 지점, 가슴 앞)
-    grip = pt(0.33, 0.68)
-    ax.add_patch(plt.Circle(grip, 0.055, facecolor=skin, edgecolor="none", zorder=6))
-    # 배트: 손에서 뒤쪽 어깨 위로 세워 든 "테이크백" 자세 + 배트 헤드
-    bat_end = pt(-0.08, 1.48)
-    ax.plot([grip[0], bat_end[0]], [grip[1], bat_end[1]], color=bat_color, linewidth=5,
-            solid_capstyle="round", zorder=6.5)
-    ax.add_patch(plt.Circle(bat_end, 0.075, facecolor=bat_color, edgecolor="none", zorder=6.5))
-    # 머리(헬멧) + 챙: 몸통 대비 비율을 조금 키워 "야구 타자"임이 멀리서도 분명히 보이게 한다.
-    head_c = pt(0.04, 1.16)
-    ax.add_patch(plt.Circle(head_c, 0.23, facecolor=helmet_color, edgecolor="none", zorder=6))
-    ax.add_patch(plt.Polygon([pt(0.20, 1.16), pt(0.48, 1.09), pt(0.46, 0.99), pt(0.22, 1.06)],
-                              closed=True, facecolor=helmet_color, edgecolor="none", zorder=6))
-
-
-def _draw_ball_marker(ax, cx: float, cy: float, glow_color: str) -> None:
-    """추천/노림 셀 중심에 은은하게 빛나는 공 마커를 그려, 참고 이미지(투수 시점 사진의 노란 글로우
-    볼)처럼 '공이 예상되는 위치'가 숫자·강조 테두리뿐 아니라 그림으로도 한눈에 보이게 한다. zorder를
-    셀 숫자 텍스트(zorder=4)보다 낮게 잡아, 공 마커가 배경처럼 깔리고 숫자는 항상 그 위에서 잘 보이게 한다."""
-    for radius, alpha in [(0.36, 0.10), (0.27, 0.20), (0.19, 0.30)]:
-        ax.add_patch(plt.Circle((cx, cy), radius, facecolor="#fde68a", edgecolor="none", alpha=alpha, zorder=3.0))
-    ax.add_patch(plt.Circle((cx, cy), 0.13, facecolor="#fffbeb", edgecolor=glow_color, linewidth=1.3, alpha=0.95, zorder=3.2))
-
-
-def _draw_pitch_trajectory(ax, target_x: float, target_y: float, color: str) -> None:
-    """존 위쪽에서 추천/노림 셀로 이어지는 궤적 곡선을 은은하게 그려, 참고 이미지의 '궤적 콘' 느낌을
-    직접 그린 곡선으로 재현한다(이미지 자체를 복사하지 않음). 존 상단 테두리 값(zorder=4)이나 강조
-    셀 숫자보다 낮은 zorder로 깔아, 궤적이 배경처럼 보이고 숫자를 가리지 않게 한다."""
-    start_x, start_y = 2.0, 4.65
-    t = np.linspace(0.0, 1.0, 40)
-    ctrl_x = (start_x + target_x) / 2 + (0.7 if target_x >= start_x else -0.7)
-    ctrl_y = (start_y + target_y) / 2
-    xs = (1 - t) ** 2 * start_x + 2 * (1 - t) * t * ctrl_x + t ** 2 * target_x
-    ys = (1 - t) ** 2 * start_y + 2 * (1 - t) * t * ctrl_y + t ** 2 * target_y
-    for lw, alpha in [(10, 0.05), (5, 0.12), (2, 0.45)]:
-        ax.plot(xs, ys, color=color, linewidth=lw, alpha=alpha, zorder=2.6, solid_capstyle="round")
-
-
-def _draw_home_plate(ax) -> None:
-    """스트라이크존 3x3 격자 바로 아래 홈플레이트 오각형을 그려 야구장 시점을 표현한다."""
-    pts = [(1.55, -0.85), (2.45, -0.85), (2.65, -0.6), (2.0, -0.35), (1.35, -0.6)]
-    ax.add_patch(plt.Polygon(pts, closed=True, facecolor="#e2e8f0", edgecolor="#22d3ee", linewidth=1.3, zorder=3))
-
-
-def _draw_mound_marker(ax) -> None:
-    """투수 모드 전용: 격자 위쪽에 마운드 아이콘을 그려 "투수 시점(마운드에서 홈플레이트를
-    바라보는 시야)"임을 시각적으로 표현한다."""
-    ax.add_patch(plt.Circle((2, 5.25), 0.34, facecolor="#a16207", edgecolor="none", zorder=3))
-    ax.add_patch(plt.Circle((2, 5.25), 0.34, facecolor="none", edgecolor="#f5e6c8", linewidth=1.5, zorder=3))
-    ax.plot([2, 2], [4.9, 4.55], color="#a16207", linewidth=2, zorder=3)
-
-
-def _render_hotcold_zone(
-    zone_scores: dict[int, float], highlight_cell: int, title: str, caption: str, stand: str, view_mode: str,
-):
-    """3x3 스트라이크존 + 바깥 테두리를 HOT & COLD 컬러맵으로 그리고, 홈플레이트/타자 실루엣을
-    더해 "투수 시점(마운드에서 타자 쪽을 바라봄)" 또는 "타자 시점(타석에 서서 투수를 바라봄)"을
-    구분해 보여준다.
-    - 제목이 잘리지 않도록 figure를 넉넉히 잡고 subplots_adjust로 상/하 여백을 확보한다.
-    - 바깥 테두리는 상/하/좌/우 중앙 4칸에만 존 밖 평균값을 표시해 "바깥 영역도 의미 있게" 보여준다.
-    - 실루엣/좌우 라벨은 항상 "투수 시점(마운드→홈플레이트)" 기준으로 먼저 그리고, view_mode가
-      "batter"면 축 전체를 좌우 반전(ax.invert_xaxis)해 "타자가 투수를 바라보는" 정반대 시점을
-      만든다. 이렇게 하면 히트맵 셀·강조 테두리·홈플레이트·실루엣이 모두 한 번에 자연스럽게
-      거울 대칭되고, 좌표 계산을 모드별로 두 벌 유지할 필요가 없다.
-    - 투수 시점 기준 규칙: 상대 타자가 좌타(L)면 실루엣이 화면 왼쪽, 우타(R)면 화면 오른쪽.
-      타자 시점은 이 축이 반전되므로 자동으로 좌우가 뒤바뀐다.
-    - view_mode="pitcher"면 마운드 아이콘을 함께 그려 투수 시점임을 강조한다.
-    """
-    grid = _hotcold_grid(zone_scores)
-    in_zone_values = [zone_scores.get(c, 0.0) for c in range(1, 10)]
-    # 존 밖(0) 값은 종종 in-zone 값들보다 훨씬 커서(예: 볼 판정 확률) 컬러스케일을 같이 쓰면
-    # 정작 중요한 3x3 안쪽 대비가 뭉개진다. vmin/vmax를 in-zone 값 범위로 고정하고, 존 밖
-    # 셀은 그 범위를 벗어나면 자동으로 극단 색(가장 진한 빨강/파랑)으로 클리핑되게 둔다.
-    vmin = min(in_zone_values) if in_zone_values else 0.0
-    vmax = max(in_zone_values) if in_zone_values else 1.0
-    if vmin == vmax:
-        vmin, vmax = vmin - 0.01, vmax + 0.01
-
-    dark_bg = "#05070c"
-    fig, ax = plt.subplots(figsize=(7.4, 7.1))
-    fig.patch.set_facecolor(dark_bg)
-    ax.set_facecolor(dark_bg)
-    # "고급 스포츠 분석 화면" 느낌을 위해 전체를 감싸는 둥근 유리 패널을 가장 아래(zorder=0)에
-    # 깔아, 그림이 빈 배경에 떠 있지 않고 카드 형태의 분석 보드 안에 담긴 것처럼 보이게 한다.
-    ax.add_patch(FancyBboxPatch(
-        (-2.55, -1.28), 9.1, 7.25, boxstyle="round,pad=0,rounding_size=0.35",
-        linewidth=1.2, edgecolor="#1e3a4f", facecolor="#0a1220", alpha=0.9, zorder=0,
-    ))
-    _draw_ground_background(ax)
-    # 다크 테마에서는 차가운 시안(안전)~뜨거운 주황/빨강(위험) 대비가 네온 느낌에 더 잘 어울려
-    # 기존 RdYlBu_r 대신 사용하고, alpha로 살짝 반투명하게 만들어 그리드 라인이 배경과 겹쳐도 붕 뜨지 않게 한다.
-    im = ax.imshow(
-        grid, cmap="turbo", origin="lower", vmin=vmin, vmax=vmax,
-        extent=(-0.5, 4.5, -0.5, 4.5), zorder=2, alpha=0.88,
-    )
-
-    for cell in range(1, 10):
-        r, c = ZONE_ROW_OF_CELL[cell], ZONE_COL_OF_CELL[cell]
-        gr_, gc = 1 + r, 1 + c
-        val = zone_scores.get(cell, 0.0)
-        ax.text(
-            gc, gr_, f"{val:.2f}", ha="center", va="center", fontsize=16, fontweight="bold",
-            color="white", zorder=4, path_effects=[pe.withStroke(linewidth=2.5, foreground="#05070c")],
-        )
-
-    out_val = zone_scores.get(0, 0.0)
-    for gx, gy in [(2, 4), (2, 0), (0, 2), (4, 2)]:  # 상/하/좌/우 테두리 중앙 4칸
-        ax.text(gx, gy, f"{out_val:.2f}", ha="center", va="center", fontsize=10, color="#cbd5e1", zorder=4)
-
-    # 추천 존은 네온 초록 glow: 같은 사각형을 굵기/투명도를 바꿔 여러 겹 겹쳐 그려 은은한 발광 효과를 낸다.
-    hr, hc = ZONE_ROW_OF_CELL[highlight_cell], ZONE_COL_OF_CELL[highlight_cell]
-    # 존 위쪽에서 추천/노림 셀로 이어지는 궤적 곡선(참고 이미지의 "궤적 콘"을 직접 그린 곡선으로 재해석).
-    _draw_pitch_trajectory(ax, 1 + hc, 1 + hr, "#4ade80")
-    for lw, alpha in [(14, 0.10), (9, 0.20), (5, 0.35)]:
-        ax.add_patch(plt.Rectangle(
-            (1 + hc - 0.5, 1 + hr - 0.5), 1, 1, fill=False, edgecolor="#22c55e",
-            linewidth=lw, alpha=alpha, zorder=4,
-        ))
-    ax.add_patch(plt.Rectangle((1 + hc - 0.5, 1 + hr - 0.5), 1, 1, fill=False, edgecolor="#4ade80", linewidth=3, zorder=4))
-    # 강조 셀 중심에 공 마커를 겹쳐, "숫자/테두리"뿐 아니라 그림으로도 예상 위치가 보이게 한다.
-    _draw_ball_marker(ax, 1 + hc, 1 + hr, "#4ade80")
-
-    # 스트라이크존 테두리는 흰색/네온 라인으로 표현.
-    zone_border = plt.Rectangle((0.5, 0.5), 3, 3, fill=False, edgecolor="#e2e8f0", linewidth=2.2, zorder=4)
-    ax.add_patch(zone_border)
-
-    _draw_home_plate(ax)
-    # 투수 시점 기준(캐노니컬) 좌우: 상대 타자가 좌타(L)면 왼쪽, 우타(R)면 오른쪽에 실루엣을 세운다.
-    # 타자 모드는 아래에서 축을 반전시켜 이 좌우를 통째로 뒤집는다.
-    silhouette_side = "left" if stand == "L" else "right"
-    _draw_batter_silhouette(ax, silhouette_side)
-    if view_mode == "pitcher":
-        _draw_mound_marker(ax)
-
-    ax.set_xlim(-2.6, 6.6)
-    ax.set_ylim(-1.3, 6.0 if view_mode == "pitcher" else 4.9)
-    if view_mode == "batter":
-        # 타자가 투수를 바라보는 시점 = 투수 시점(마운드→홈플레이트)을 좌우로 뒤집은 모습.
-        ax.invert_xaxis()
-    ax.set_xticks([])
-    ax.set_yticks([])
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    ax.set_title(title, fontsize=12, pad=10, wrap=True, color="#f8fafc")
-
-    cbar = fig.colorbar(im, ax=ax, fraction=0.035, pad=0.03)
-    cbar.ax.tick_params(labelsize=8, colors="#cbd5e1")
-    cbar.outline.set_edgecolor("#334155")
-
-    inside_label, outside_label = ("몸쪽", "바깥쪽") if stand == "R" else ("바깥쪽", "몸쪽")
-    # fig.text는 축(ax)과 달리 invert_xaxis()의 영향을 받지 않는 "그림 좌표"라서, 타자 모드에서는
-    # 화면 좌/우에 찍히는 라벨 순서를 직접 맞바꿔야 실제로 반전된 그림과 말이 맞는다.
-    left_label, right_label = (outside_label, inside_label) if view_mode == "batter" else (inside_label, outside_label)
-    hand_kr = "좌타" if stand == "L" else "우타"
-    view_name = "투수" if view_mode == "pitcher" else "타자"
-    guide = "낮을수록 안전" if view_mode == "pitcher" else "높을수록 노림"
-    # 별도 흰색 시점 안내 박스 대신, "시점 | 타석 방향 | 해석 가이드"를 캡션 한 줄에 압축해 보여준다.
-    fig.text(0.44, 0.155, f"{view_name} 시점 | {hand_kr}({stand}) 기준 | {guide}", ha="center", fontsize=10, color="#22d3ee", fontweight="bold")
-    fig.text(0.44, 0.115, f"◀ 타자 기준 {left_label}          타자 기준 {right_label} ▶  ·  (테두리 숫자 = 존 밖)", ha="center", fontsize=8.5, color="#94a3b8")
-    fig.text(0.44, 0.045, caption, ha="center", fontsize=11, fontweight="bold", color="#f1f5f9")
-
-    fig.subplots_adjust(top=0.88, bottom=0.23, left=0.04, right=0.86)
-    return fig
-
-
-def render_pitcher_hotcold_zone(zone_danger_scores: dict[int, float], best_cell: int, recommended_label: str, stand: str):
-    recommended_kr = pitch_label_kr(recommended_label)
-    return _render_hotcold_zone(
-        zone_danger_scores, best_cell,
-        f"투수용 HOT & COLD ZONE\n{recommended_kr}({recommended_label}) 위험도 (낮음=파랑/안전, 높음=빨강/위험)",
-        "낮은 숫자(파랑) 쪽으로 던지는 게 안전합니다",
-        stand, "pitcher",
-    )
-
-
-def render_batter_hotcold_zone(zone_probability_scores: dict[int, float], target_cell: int, stand: str):
-    return _render_hotcold_zone(
-        zone_probability_scores, target_cell,
-        "타자용 HOT & COLD ZONE\n예상 투구 위치 확률 (낮음=파랑, 높음=빨강/노림수)",
-        "높은 숫자(빨강) 쪽을 노리세요",
-        stand, "batter",
-    )
-
-
-# ============================================================================
-# STRIKE ZONE BOARD (HTML/SVG, 웹 화면 전용 - "스포츠 중계 그래픽 + 게임 HUD" 스타일)
-# 위 matplotlib 함수(render_pitcher_hotcold_zone 등)는 PDF 등에 필요할 경우를 대비해 그대로
-# 남겨두고, 실제 웹 화면(gr.HTML)에는 이 SVG 보드를 대신 사용한다. 계산값(zone_danger_scores /
-# zone_probability_scores / best_cell / target_cell)은 그대로 재사용하고 시각화 레이어만 바꾼다.
-# ============================================================================
-
-def _zone_color(norm: float) -> str:
-    """0(안전/낮음)~1(위험·노림/높음) 정규화 값을 시안(차가움)->로즈(뜨거움) 그라디언트 색으로 변환."""
-    norm = max(0.0, min(1.0, norm))
-    cold, hot = (8, 145, 178), (225, 29, 72)
-    r = round(cold[0] + (hot[0] - cold[0]) * norm)
-    g = round(cold[1] + (hot[1] - cold[1]) * norm)
-    b = round(cold[2] + (hot[2] - cold[2]) * norm)
-    return f"rgb({r},{g},{b})"
-
-
-def _svg_batter_silhouette(cx: float, ground_y: float, side: str) -> str:
-    """부드러운 SVG path + 베지어 곡선으로 그린 타자 실루엣(막대인간 금지, 단 완벽한 인체
-    묘사보다는 어두운 보드 배경에서 확실히 눈에 띄는 것을 우선한다). 저지/하의/헬멧/배트/
-    피부를 서로 다른 색으로 구분해 형체가 잘 보이게 하고, 이전 단색 버전보다 대비를 높인
-    밝은 톤을 쓴다. side="left"/"right"는 보드 위에서 실루엣이 서는 위치이며, 실루엣은
-    항상 스트라이크존(중앙)을 바라보는 타격 자세로 그린다."""
-    sign = 1 if side == "left" else -1
-    navy, navy_dark, pants, helmet, bat, skin = "#9db4dc", "#1c2740", "#eef2f9", "#22d3ee", "#d99a56", "#eab383"
-    return f"""
-    <g transform="translate({cx},{ground_y}) scale({sign},1)">
-      <path d="M -24,-2 C -27,-22 -26,-42 -21,-60 C -19,-64 -8,-64 -7,-60 C -9,-42 -8,-22 -5,-2 Z" fill="{pants}" />
-      <path d="M 5,-2 C 3,-24 6,-44 13,-60 C 15,-64 27,-64 29,-59 C 34,-40 33,-20 27,-2 Z" fill="{pants}" />
-      <path d="M -27,-2 C -27,2 -25,6 -21,7 L -4,7 C -3,4 -3,0 -4,-2 Z" fill="{navy_dark}" />
-      <path d="M 24,-2 C 24,2 26,6 30,7 L 33,7 C 35,3 35,-1 33,-2 Z" fill="{navy_dark}" />
-      <path d="M -20,-58 C -22,-80 -19,-104 -11,-124 C -7,-134 4,-139 14,-136
-               C 24,-133 28,-119 25,-104 C 22,-86 20,-70 16,-58 Z" fill="{navy}" />
-      <path d="M -20,-59 C -12,-63 8,-63 17,-59 L 16,-53 C 6,-57 -11,-57 -19,-53 Z" fill="{navy_dark}" />
-      <path d="M -6,-128 Q 10,-118 20,-152" fill="none" stroke="{navy_dark}" stroke-width="11" stroke-linecap="round" />
-      <path d="M 12,-124 Q 22,-116 28,-150" fill="none" stroke="{navy}" stroke-width="12" stroke-linecap="round" />
-      <circle cx="28" cy="-151" r="6.5" fill="{skin}" />
-      <path d="M 28,-151 Q 16,-185 -2,-216" fill="none" stroke="{bat}" stroke-width="6.5" stroke-linecap="round" />
-      <circle cx="-2" cy="-216" r="7.5" fill="{bat}" />
-      <ellipse cx="9" cy="-172" rx="20" ry="21" fill="{helmet}" />
-      <path d="M 22,-174 C 32,-178 44,-180 49,-186 C 50,-192 46,-196 40,-195
-               C 32,-193 24,-188 18,-183 Z" fill="{helmet}" />
-    </g>"""
-
-
-# 구종별 궤적 곡선 느낌(횡변화 비율, 낙차/감속 비율). FF/SI는 거의 직선, SL/ST는 옆으로 크게,
-# CH/FS는 속도 죽으며 아래로, CU/KC/SV는 크게 떨어지고, FC는 짧고 살짝 꺾인다.
-PITCH_TRAJECTORY_PROFILE = {
-    "FF": (0.05, 0.05), "SI": (0.10, 0.12),
-    "SL": (0.42, 0.10), "ST": (0.50, 0.10),
-    "CH": (0.15, 0.32), "FS": (0.15, 0.38),
-    "CU": (0.20, 0.50), "KC": (0.20, 0.50), "SV": (0.32, 0.42),
-    "FC": (0.14, 0.05), "OTHER": (0.15, 0.15),
-}
-
-
-def _trajectory_path(start: tuple[float, float], end: tuple[float, float], pitch_label: str, lateral_sign: float) -> str:
-    """구종별 궤적 프로필에 따라 cubic bezier 경로 문자열을 만든다. lateral_sign으로 타자 모드
-    좌우 반전(cell_xy의 disp_col 반전)과 방향을 맞춘다."""
-    sx, sy = start
-    ex, ey = end
-    lateral, drop = PITCH_TRAJECTORY_PROFILE.get(pitch_label, (0.15, 0.15))
-    dx, dy = ex - sx, ey - sy
-    c1x, c1y = sx + dx * 0.33 + dx * lateral * lateral_sign, sy + dy * 0.33
-    c2x, c2y = sx + dx * 0.66 + dx * lateral * 0.4 * lateral_sign, sy + dy * 0.66 + abs(dy) * drop
-    return f"M {sx:.1f},{sy:.1f} C {c1x:.1f},{c1y:.1f} {c2x:.1f},{c2y:.1f} {ex:.1f},{ey:.1f}"
-
-
-def _render_strike_zone_board(
-    zone_scores: dict[int, float], highlight_cell: int, stand: str, view_mode: str,
-    header_label: str, sub_caption: str, unit_caption: str, metric_badge: str,
-    trajectories: list[dict] | None = None,
-) -> str:
-    """"스포츠 중계 그래픽 + 게임 HUD" 스타일 STRIKE ZONE BOARD를 SVG로 그려 HTML 문자열로
-    반환한다(gr.HTML용, matplotlib/컬러바 없음). 시점/좌우 로직은 기존 matplotlib 버전과 동일한
-    규칙을 그대로 따른다: 투수 시점(캐노니컬)에서 상대가 좌타(L)면 왼쪽·우타(R)면 오른쪽에
-    실루엣을 세우고, 타자 시점은 좌우를 통째로 뒤집는다(실루엣 위치 + 몸쪽/바깥쪽 라벨 순서 모두).
-    trajectories: [{"pitch_label":..., "cell": int, "rank": 1|2|3}, ...] - 마운드/상단에서
-    각 구종의 예상 목적지 셀로 향하는 궤적. rank=1이 가장 밝고, 2/3은 흐리게 그린다."""
-    in_zone_values = [zone_scores.get(c, 0.0) for c in range(1, 10)]
-    vmin = min(in_zone_values) if in_zone_values else 0.0
-    vmax = max(in_zone_values) if in_zone_values else 1.0
-    if vmin == vmax:
-        vmin, vmax = vmin - 0.01, vmax + 0.01
-
-    W, H = 640, 460
-    CELL, GRID_LEFT, GRID_TOP = 88, 228, 78
-    grid_cx, grid_bottom_y = GRID_LEFT + 1.5 * CELL, GRID_TOP + 3 * CELL
-    trajectory_start = (grid_cx, GRID_TOP - 40)
-
-    # 투수 시점 기준(캐노니컬) 좌우: 타자 모드는 col을 뒤집어 전체를 거울 대칭시킨다
-    # (matplotlib의 ax.invert_xaxis()와 동일한 효과를 좌표 계산으로 직접 구현).
-    def cell_xy(cell: int) -> tuple[float, float]:
-        row, col = ZONE_ROW_OF_CELL[cell], ZONE_COL_OF_CELL[cell]
-        disp_col = col if view_mode == "pitcher" else (2 - col)
-        x = GRID_LEFT + disp_col * CELL
-        y = GRID_TOP + (2 - row) * CELL  # row0(하단)이 아래쪽(큰 y)에 오도록 반전
-        return x, y
-
-    # 궤적: 숫자보다 먼저 그려서 셀/텍스트 아래(뒤)에 깔리게 하고, 최고 순위만 살짝 진하게 한다.
-    lateral_sign = 1.0 if view_mode == "pitcher" else -1.0
-    trajectory_svg_parts = []
-    for traj in (trajectories or []):
-        cell = traj.get("cell")
-        if cell is None or cell not in ZONE_ROW_OF_CELL:
-            continue
-        x, y = cell_xy(cell)
-        end = (x + CELL / 2, y + CELL / 2)
-        rank = traj.get("rank", 3)
-        path_d = _trajectory_path(trajectory_start, end, traj.get("pitch_label", "OTHER"), lateral_sign)
-        if rank == 1:
-            color, width, opacity, ball_r = "#c8102e", 4.2, 0.85, 7
-        elif rank == 2:
-            color, width, opacity, ball_r = "#14203c", 2.6, 0.30, 5
-        else:
-            color, width, opacity, ball_r = "#14203c", 2.2, 0.18, 4
-        trajectory_svg_parts.append(
-            f'<path d="{path_d}" fill="none" stroke="{color}" stroke-width="{width}" '
-            f'stroke-linecap="round" opacity="{opacity}" />'
-        )
-        if rank != 1:  # rank=1의 끝점 마커는 강조 셀의 볼 마커와 겹치므로 생략
-            trajectory_svg_parts.append(f'<circle cx="{end[0]:.1f}" cy="{end[1]:.1f}" r="{ball_r}" fill="{color}" opacity="{opacity+0.2}" />')
-    trajectory_svg = "".join(trajectory_svg_parts)
-
-    cells_svg = []
-    for cell in range(1, 10):
-        x, y = cell_xy(cell)
-        val = zone_scores.get(cell, 0.0)
-        norm = (val - vmin) / (vmax - vmin) if vmax > vmin else 0.5
-        color = _zone_color(norm)
-        is_best = cell == highlight_cell
-        glow = 'filter="url(#zoneGlow)"' if is_best else ""
-        border = "#1f8a4c" if is_best else "rgba(20,32,60,0.18)"
-        border_w = 3.5 if is_best else 1.2
-        cells_svg.append(f"""
-        <rect x="{x+3}" y="{y+3}" width="{CELL-6}" height="{CELL-6}" rx="12" fill="{color}" fill-opacity="0.55"
-              stroke="{border}" stroke-width="{border_w}" {glow} />""")
-        if is_best:
-            cx_ball, cy_ball = x + CELL / 2, y + CELL / 2
-            cells_svg.append(f"""
-            <circle cx="{cx_ball}" cy="{cy_ball}" r="30" fill="#1f8a4c" opacity="0.14" />
-            <circle cx="{cx_ball}" cy="{cy_ball}" r="13" fill="#ffffff" stroke="#1f8a4c" stroke-width="1.8" />""")
-        cells_svg.append(f"""
-        <text x="{x + CELL/2}" y="{y + CELL/2 + 10}" text-anchor="middle" font-size="32" font-weight="800"
-              fill="#f8fafc" style="paint-order: stroke; stroke: #05070c; stroke-width: 3.5px;">{val:.0%}</text>""")
-
-    out_val = zone_scores.get(0, 0.0)
-    border_labels = [
-        (grid_cx, GRID_TOP - 22), (grid_cx, grid_bottom_y + 30),
-        (GRID_LEFT - 30, GRID_TOP + 1.5 * CELL), (GRID_LEFT + 3 * CELL + 30, GRID_TOP + 1.5 * CELL),
-    ]
-    border_svg = "".join(
-        f'<text x="{bx}" y="{by}" text-anchor="middle" font-size="13" fill="#6b6555">{out_val:.0%}</text>'
-        for bx, by in border_labels
-    )
-
-    # 실루엣: 캐노니컬(투수 시점) 규칙은 "좌타=왼쪽/우타=오른쪽", 타자 시점은 반전.
-    canonical_side = "left" if stand == "L" else "right"
-    side = canonical_side if view_mode == "pitcher" else ("right" if canonical_side == "left" else "left")
-    silhouette_cx = 95 if side == "left" else W - 95
-    silhouette = _svg_batter_silhouette(silhouette_cx, grid_bottom_y + 40, side)
-
-    ground_svg = f"""
-    <ellipse cx="{W/2}" cy="{grid_bottom_y + 70}" rx="290" ry="95" fill="#132018" opacity="0.7" />
-    <ellipse cx="{W/2}" cy="{grid_bottom_y + 70}" rx="290" ry="95" fill="none" stroke="#22c55e" stroke-width="10" opacity="0.12" />"""
-    plate_svg = f"""
-    <polygon points="{grid_cx-42},{grid_bottom_y+18} {grid_cx+42},{grid_bottom_y+18} {grid_cx+52},{grid_bottom_y+40}
-                     {grid_cx},{grid_bottom_y+58} {grid_cx-52},{grid_bottom_y+40}"
-             fill="#ffffff" stroke="#14203c" stroke-width="1.5" />"""
-    mound_svg = ""
-    if view_mode == "pitcher":
-        mound_svg = f"""
-        <circle cx="{grid_cx}" cy="{GRID_TOP-46}" r="17" fill="#a16207" />
-        <circle cx="{grid_cx}" cy="{GRID_TOP-46}" r="17" fill="none" stroke="#f5e6c8" stroke-width="1.6" />
-        <line x1="{grid_cx}" y1="{GRID_TOP-29}" x2="{grid_cx}" y2="{GRID_TOP-14}" stroke="#a16207" stroke-width="2.5" />"""
-
-    inside_label, outside_label = ("몸쪽", "바깥쪽") if stand == "R" else ("바깥쪽", "몸쪽")
-    left_label, right_label = (outside_label, inside_label) if view_mode == "batter" else (inside_label, outside_label)
-    hand_kr = "좌타" if stand == "L" else "우타"
-    view_name_en = "PITCHER VIEW" if view_mode == "pitcher" else "BATTER VIEW"
-
-    return f"""
-    <div class="ds-zone-card">
-      <div class="ds-zone-header">
-        <span class="ds-zone-header-en">{view_name_en}</span>
-        <span class="ds-zone-header-sep">|</span>
-        <span class="ds-zone-header-kr">HOT &amp; COLD ZONE</span>
-        <span class="ds-zone-badge">{metric_badge}</span>
-      </div>
-      <div class="ds-zone-sub">{header_label} &middot; {hand_kr}({stand}) 기준 &middot; {sub_caption}</div>
-      <svg viewBox="0 0 {W} {H}" class="ds-zone-svg" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <filter id="zoneGlow" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur stdDeviation="6" result="blur" />
-            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-          </filter>
-        </defs>
-        {ground_svg}
-        {plate_svg}
-        {mound_svg}
-        {silhouette}
-        {trajectory_svg}
-        <rect x="{GRID_LEFT}" y="{GRID_TOP}" width="{3*CELL}" height="{3*CELL}" rx="16" fill="none"
-              stroke="#14203c" stroke-width="2.2" />
-        {"".join(cells_svg)}
-        {border_svg}
-      </svg>
-      <div class="ds-zone-footer">
-        <span>&#9664; 타자 기준 {left_label}</span>
-        <div class="ds-zone-legend">
-          <span class="ds-zone-legend-label">안전/낮음</span>
-          <span class="ds-zone-legend-pill"></span>
-          <span class="ds-zone-legend-label">위험·노림/높음</span>
-        </div>
-        <span>타자 기준 {right_label} &#9654;</span>
-      </div>
-      <div class="ds-zone-caption">{unit_caption}</div>
-    </div>"""
-
-
-def render_pitcher_zone_board(
-    zone_hit_risk_scores: dict[int, float], best_cell: int, recommended_label: str, stand: str,
-    trajectories: list[dict] | None = None,
-) -> str:
-    recommended_kr = pitch_label_kr(recommended_label)
-    return _render_strike_zone_board(
-        zone_hit_risk_scores, best_cell, stand, "pitcher",
-        f"{recommended_kr}({recommended_label}) 피안타 위험", "낮을수록 안전",
-        "낮은 코스로 던지는 게 안전해요", "HIT RISK", trajectories,
-    )
-
-
-def render_batter_zone_board(
-    zone_probability_scores: dict[int, float], target_cell: int, stand: str,
-    trajectories: list[dict] | None = None,
-) -> str:
-    return _render_strike_zone_board(
-        zone_probability_scores, target_cell, stand, "batter",
-        "예상 투구 확률", "높을수록 노림",
-        "높은 코스를 노려보세요", "PITCH PROB", trajectories,
-    )
-
-
-# ============================================================================
 # Markdown 리포트 + PDF
 # ============================================================================
 
@@ -769,17 +244,6 @@ def _sensitivity_summary_lines(result: dict) -> list[str]:
     if zone_range is not None:
         lines.append(f"- 존별 값의 최대-최소 편차는 {zone_range:.1%}로, 상황이 바뀌면 히트맵 색상/숫자도 함께 달라집니다.")
     return lines
-
-
-def _zone_hand_label(cell: int, stand: str) -> str:
-    """zone_cell의 좌/중/우 열을 타자의 타석 방향(stand) 기준 몸쪽/바깥쪽/가운데로 변환한다.
-    우타 기준 plate_x 음수쪽=몸쪽·양수쪽=바깥쪽, 좌타는 그 반대로 해석한다."""
-    col = ZONE_COL_OF_CELL[cell]
-    if col == 1:
-        return "가운데"
-    if stand == "R":
-        return "몸쪽" if col == 0 else "바깥쪽"
-    return "바깥쪽" if col == 0 else "몸쪽"
 
 
 def build_markdown_report(mode: str, result: dict, meta: dict) -> str:
@@ -1067,10 +531,6 @@ def run_pitcher_analysis(
     # 좌타/우타, 좌투/우투를 사용자가 직접 고르지 않고 실제 데이터 기반으로 자동 추정한다.
     batter_stand = scouting_service.get_batter_stand(batter_id)
     pitcher_throws = scouting_service.get_pitcher_throws(pitcher_id)
-    matchup_hand_text = (
-        f"🧍 상대 타자 타석 방향: **{_hand_kr(batter_stand)}타({batter_stand})**"
-        f"  ⚾ 내 투구 방향: **{_hand_kr(pitcher_throws)}투({pitcher_throws})** _(데이터 기반 자동 추정)_"
-    )
 
     # 투수 모드: 우리팀 = 투수팀이므로 우리팀 기준 점수차가 곧 모델이 쓰는 "투수팀 기준" score_diff다.
     if our_score is None or opponent_score is None:
@@ -1099,15 +559,15 @@ def run_pitcher_analysis(
     result["score_situation_label"] = score_situation_label
     analysis_log_id = db_save_analysis_log("pitcher", pitcher_id, context, recent_pitches, comment or "", result)
 
-    top3_html = render_top3_cards(result["predicted_top3_pitches"], "던지면 유리한 구종 Top-3 (아웃/약한 타구 유도)")
-    risk_html = render_risk_cards(result["risk_summary"])
+    top3_html = _top3_section(result["predicted_top3_pitches"], "던지면 유리한 구종 Top-3 (아웃/약한 타구 유도)")
+    risk_html = render_risk_badges(result["risk_summary"])
 
     pr = result["pitcher_mode_result"]
     recommended_text = f"{pitch_label_kr(pr['recommended_pitch'])} ({pr['recommended_pitch']})"
     avoid_text = f"{pitch_label_kr(pr['avoid_pitch'])} ({pr['avoid_pitch']})" if pr["avoid_pitch"] else "-"
     recommend_card_html = render_hero_recommend_card(
         "추천 구종", recommended_text, "예측 확률·구사 성향·매치업·위험도를 종합한 1순위 선택",
-        "피해야 할 구종", avoid_text, accent="#1f8a4c",
+        "피해야 할 구종", avoid_text, accent="#c8102e",
     )
     batter_weakness_html = render_insight_card("상대 타자 약점 요약", pr["batter_weakness"]["summary"])
     # Top-3 각 구종이 실제로 가장 많이 들어간 zone_cell을 궤적 목적지로 사용(구종별 궤적 표시).
@@ -1116,9 +576,10 @@ def run_pitcher_analysis(
          "cell": scouting_service.get_zone_cell_estimate(pitcher_id, item["pitch_label"])}
         for i, item in enumerate(result["predicted_top3_pitches"])
     ]
-    hotcold_html = render_pitcher_zone_board(
-        pr["zone_hit_risk_scores"], pr["best_zone_cell"], pr["recommended_pitch"], batter_stand, pitcher_trajectories,
-    )
+    scene_json = json.dumps(build_scene_payload(
+        mode="pitcher", stand=batter_stand, zone_scores=pr["zone_hit_risk_scores"],
+        highlight_cell=pr["best_zone_cell"], metric="HIT_RISK", trajectories=pitcher_trajectories,
+    ))
 
     meta = {
         "my_label": f"🧑‍⚾ 내 투수: {scouting_service.get_pitcher_name(pitcher_id)} (ID {pitcher_id})",
@@ -1132,12 +593,19 @@ def run_pitcher_analysis(
         "score_team_label": "투수팀(우리팀)",
     }
     report_md = build_markdown_report("pitcher", result, meta)
+    matchup_html = render_matchup_column(
+        "pitcher", pitcher_id, batter_id,
+        pitcher_gauges=_pitch_gauges(pr["own_pitch_pattern"]),
+        pitcher_note=pr["own_pitch_pattern"]["summary"],
+        batter_note=pr["batter_weakness"]["summary"],
+    )
+    result_html = _compose_result_html(
+        meta, recommend_card_html, top3_html, risk_html, batter_weakness_html,
+    )
     pitcher_state = {"mode": "pitcher", "result": result, "meta": meta, "analysis_log_id": analysis_log_id}
-    status_html = render_analysis_status(done=True)
 
     return (
-        matchup_hand_text, top3_html, risk_html, recommend_card_html, batter_weakness_html,
-        hotcold_html, report_md, pitcher_state, status_html,
+        matchup_html, scene_json, result_html, report_md, pitcher_state, render_analysis_status(done=True),
     )
 
 
@@ -1150,10 +618,6 @@ def run_batter_analysis(
 
     my_stand = scouting_service.get_batter_stand(batter_id)
     opponent_throws = scouting_service.get_pitcher_throws(pitcher_id)
-    matchup_hand_text = (
-        f"🧍 내 타석 방향: **{_hand_kr(my_stand)}타({my_stand})**"
-        f"  ⚾ 상대 투수 투구 방향: **{_hand_kr(opponent_throws)}투({opponent_throws})** _(데이터 기반 자동 추정)_"
-    )
 
     # 타자 모드: 우리팀 = 타자팀. 모델 context의 score_diff는 "투수팀(=상대팀) 기준"이므로 부호를
     # 반전해서 넘긴다. 사용자에게 보여줄 때는 항상 우리팀 기준(user_score_diff)을 쓴다.
@@ -1180,22 +644,23 @@ def run_batter_analysis(
     result["score_situation_label"] = score_situation_label
     analysis_log_id = db_save_analysis_log("batter", pitcher_id, context, recent_pitches, comment or "", result)
 
-    top3_html = render_top3_cards(result["predicted_top3_pitches"], "상대 투수가 던질 가능성이 높은 구종 Top-3")
-    risk_html = render_risk_cards(result["risk_summary"])
+    top3_html = _top3_section(result["predicted_top3_pitches"], "상대 투수가 던질 가능성이 높은 구종 Top-3")
+    risk_html = render_risk_badges(result["risk_summary"])
 
     br = result["batter_mode_result"]
     recommend_card_html = render_hero_recommend_card(
         "노릴 코스", br["target_zone"], "예상 투구 확률·상대 패턴·전략 코멘트를 종합한 최우선 코스",
-        "대응 전략", br["counter_strategy"], accent="#1f8a4c",
+        "대응 전략", br["counter_strategy"], accent="#c8102e",
     )
     pitcher_pattern_html = render_insight_card("상대 투수 패턴 요약", br["pitcher_pattern"]["summary"])
     batter_trajectories = [
         {"pitch_label": loc["pitch_label"], "rank": i + 1, "cell": loc["zone_cell"]}
         for i, loc in enumerate(br["expected_locations"])
     ]
-    hotcold_html = render_batter_zone_board(
-        br["zone_probability_scores"], br["target_zone_cell"], my_stand, batter_trajectories,
-    )
+    scene_json = json.dumps(build_scene_payload(
+        mode="batter", stand=my_stand, zone_scores=br["zone_probability_scores"],
+        highlight_cell=br["target_zone_cell"], metric="PITCH_PROB", trajectories=batter_trajectories,
+    ))
 
     meta = {
         "my_label": f"🏏 내 타자: {get_batter_display(batter_id)}",
@@ -1209,12 +674,18 @@ def run_batter_analysis(
         "score_team_label": "타자팀(우리팀)",
     }
     report_md = build_markdown_report("batter", result, meta)
+    matchup_html = render_matchup_column(
+        "batter", pitcher_id, batter_id,
+        pitcher_gauges=_pitch_gauges(br["pitcher_pattern"]),
+        pitcher_note=br["pitcher_pattern"]["summary"],
+    )
+    result_html = _compose_result_html(
+        meta, recommend_card_html, top3_html, risk_html, pitcher_pattern_html,
+    )
     batter_state = {"mode": "batter", "result": result, "meta": meta, "analysis_log_id": analysis_log_id}
-    status_html = render_analysis_status(done=True)
 
     return (
-        matchup_hand_text, top3_html, risk_html, recommend_card_html, pitcher_pattern_html,
-        hotcold_html, report_md, batter_state, status_html,
+        matchup_html, scene_json, result_html, report_md, batter_state, render_analysis_status(done=True),
     )
 
 
@@ -1295,990 +766,366 @@ def handle_chat(message, history, state: dict | None):
     return history, ""
 
 
-# ============================================================================
-# 라이트 스포츠 브로드캐스트 테마 CSS
-# ============================================================================
-
-CUSTOM_CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Teko:wght@500;600;700&family=Share+Tech+Mono&display=swap');
-
-:root {
-    color-scheme: light;
-}
-.gradio-container {
-    background: #f4f2ec !important;
-    max-width: 1320px !important;
-    margin: 0 auto !important;
-    font-size: 17px !important;
-    color-scheme: light;
-    /* Gradio 6 내부 컴포넌트(슬라이더/드롭다운 등)가 라이트 팔레트를 그대로 쓰도록
-       변수 레벨에서 고정한다. .ds-* 클래스만으로는 내부 컴포넌트가 예전 다크 변수값을
-       참조해 라이트/다크가 뒤섞여 보이는 문제가 있었다 (2026-08-03 스펙에서 겪은 문제의
-       재발 방지). */
-    --body-background-fill: #f4f2ec !important;
-    --background-fill-primary: #ffffff !important;
-    --background-fill-secondary: #f7f5ef !important;
-    --border-color-primary: #e6e1d3 !important;
-    --border-color-accent: #c8102e !important;
-    --block-background-fill: #ffffff !important;
-    --block-border-color: #e6e1d3 !important;
-    --block-label-background-fill: #ffffff !important;
-    --block-label-text-color: #6b6555 !important;
-    --body-text-color: #14203c !important;
-    --body-text-color-subdued: #6b6555 !important;
-    --input-background-fill: #f7f5ef !important;
-    --checkbox-background-color: #f7f5ef !important;
-    --checkbox-background-color-selected: #c8102e !important;
-    --neutral-950: #14203c !important;
-}
-.gradio-container, .gradio-container p, .gradio-container span, .gradio-container label {
-    color: #14203c;
-}
-.gradio-container h1, .gradio-container h2, .gradio-container h3, .gradio-container h4,
-.gradio-container button, .ds-panel-title, .ds-board-title, .ds-qa-title, .ds-step-dot {
-    font-family: 'Teko', 'Pretendard', sans-serif !important;
-    letter-spacing: 0.02em;
-}
-.gradio-container input,
-.gradio-container textarea,
-.gradio-container select {
-    background: #f7f5ef !important;
-    color: #14203c !important;
-}
-.gradio-container h1 { color: #14203c; font-size: 34px !important; margin-bottom: 6px !important; }
-.gradio-container h2 { color: #14203c; font-size: 25px !important; }
-.gradio-container h3, .gradio-container h4 {
-    color: #14203c; font-size: 21px !important; margin-top: 26px !important; margin-bottom: 12px !important;
-}
-/* 입력 영역 = 경기 설정 패널 / 결과 영역 = 코칭 보드 / Q&A 패널 공통 카드 스타일 */
-.ds-panel, .ds-board, .ds-qa-panel {
-    border-radius: 16px !important;
-    padding: 24px 26px !important;
-    margin: 20px 0 !important;
-    background: #ffffff !important;
-    border: 1px solid #e6e1d3 !important;
-    box-shadow: 0 4px 14px rgba(20,32,60,0.06);
-}
-.ds-panel-title, .ds-board-title, .ds-qa-title {
-    font-weight: 800; letter-spacing: 0.03em; font-size: 20px; padding: 2px 0 14px 12px;
-    margin: 0 !important; border-left: 4px solid;
-}
-.ds-panel-title { color: #c8102e; border-color: #c8102e; }
-.ds-board-title { color: #14203c; border-color: #14203c; }
-.ds-qa-title { color: #14203c; border-color: #c8102e; }
-/* ===== Instant Scout Q&A — 실제 메신저처럼 보이는 채팅 UI ===== */
-.ds-qa-chips { flex-wrap: wrap !important; gap: 8px !important; margin-bottom: 10px !important; }
-.ds-qa-chips button {
-    background: #f7f5ef !important; color: #14203c !important; border: 1.5px solid #e6e1d3 !important;
-    border-radius: 999px !important; font-size: 13px !important; font-weight: 600 !important;
-    padding: 6px 14px !important; box-shadow: none !important; min-width: unset !important; flex: 0 0 auto !important;
-}
-.ds-qa-chips button:hover { border-color: #c8102e !important; color: #c8102e !important; }
-.ds-chatbot { border-radius: 14px !important; border: 1px solid #e6e1d3 !important; overflow: hidden !important; }
-.ds-chatbot .bubble-wrap, .ds-chatbot .panel-wrap { background: #f7f5ef !important; padding: 14px !important; }
-.ds-chatbot .message-row { margin: 6px 0 !important; }
-.ds-chatbot .avatar-container { display: none !important; }
-/* 사용자 말풍선: 오른쪽 정렬 + 브랜드 네이비, 상대(봇) 말풍선: 왼쪽 정렬 + 흰 카드.
-   실제 말풍선 배경은 .bubble.user-row(행 전체)가 아니라 그 안의 .message.user 요소에 칠해져 있다
-   (Gradio 6.19 DOM 확인: <div class="user message">). 행에 배경을 줘도 안 보이는 이유였다. */
-.ds-chatbot .message.user {
-    background: #14203c !important; border: none !important; border-radius: 16px 16px 4px 16px !important;
-    padding: 10px 14px !important; max-width: 82% !important;
-}
-.ds-chatbot .message.user, .ds-chatbot .message.user * { color: #ffffff !important; }
-.ds-chatbot .message.bot {
-    background: #ffffff !important; border: 1px solid #e6e1d3 !important; border-radius: 16px 16px 16px 4px !important;
-    padding: 10px 14px !important; max-width: 82% !important;
-    box-shadow: 0 1px 4px rgba(20,32,60,0.08) !important;
-}
-.ds-chatbot .message.bot, .ds-chatbot .message.bot * { color: #14203c !important; }
-/* 입력 줄: 알약 모양 입력창 + 원형 전송 버튼, 메신저 하단 바처럼 */
-.ds-qa-input-row {
-    align-items: center !important; gap: 8px !important; margin-top: 10px !important;
-    background: #f7f5ef !important; border: 1.5px solid #e6e1d3 !important; border-radius: 999px !important;
-    padding: 4px 4px 4px 16px !important;
-}
-.ds-qa-input-row textarea, .ds-qa-input-row input {
-    background: transparent !important; border: none !important; box-shadow: none !important;
-    padding: 8px 0 !important;
-}
-.ds-btn-send {
-    background: #c8102e !important; color: #ffffff !important; border: none !important;
-    border-radius: 999px !important; min-width: 64px !important; font-weight: 700 !important;
-    box-shadow: none !important;
-}
-.ds-btn-send:hover { background: #a00c24 !important; }
-/* 전략 리포트 아코디언 — 본문은 기본 마크다운 검정 텍스트 대신 브랜드 컬러 위계를 따른다 */
-.ds-report-accordion {
-    border: 1px solid #e6e1d3 !important; border-radius: 12px !important; background: #fbfaf6 !important;
-    margin: 8px 0 4px 0 !important;
-}
-.ds-report-accordion > .label-wrap { padding: 12px 16px !important; }
-.ds-report-accordion > .label-wrap span { font-weight: 700 !important; color: #14203c !important; font-size: 15px !important; }
-.ds-report-md { padding: 4px 16px 16px !important; }
-.ds-report-md h1 { display: none; } /* "⚾ DiamondScout AI 전력분석 리포트" 대제목은 화면에서는 중복이라 숨김 */
-.ds-report-md h2 {
-    color: #c8102e !important; font-size: 18px !important; margin: 18px 0 6px !important;
-    border-bottom: 2px solid #f0dede; padding-bottom: 6px;
-}
-.ds-report-md h3, .ds-report-md h4 {
-    color: #14203c !important; font-size: 15.5px !important; margin: 16px 0 6px !important;
-}
-.ds-report-md p, .ds-report-md li { color: #4a4638 !important; font-size: 14.5px !important; line-height: 1.65 !important; }
-.ds-report-md strong { color: #14203c !important; }
-.ds-report-md blockquote {
-    border-left: 3px solid #c8102e !important; background: rgba(200,16,46,0.05) !important;
-    padding: 8px 12px !important; border-radius: 0 6px 6px 0 !important; margin: 8px 0 !important;
-}
-.ds-report-md em { color: #8a8367; }
-/* 볼/스트라이크/아웃 스코어보드 */
-.ds-scoreboard {
-    background: #f7f5ef !important;
-    border: 1px solid #e6e1d3 !important;
-    border-radius: 12px !important;
-    padding: 14px 10px !important;
-    margin: 6px 0 16px 0 !important;
-}
-.ds-scoreboard input[type=range] { accent-color: #c8102e; }
-.ds-scoreboard input[type=number] { font-family: 'Share Tech Mono', monospace !important; }
-/* 주자 베이스 카드 */
-/* ===== 주자 상황 다이아몬드 — 실제 야구장 항공샷처럼 흙(basepath) 테두리 + 잔디 인필드 +
-   마운드를 그리고, 체크박스를 루 위치의 작은 다이아몬드 마커로 배치한다 ===== */
-.ds-diamond-wrap {
-    justify-content: center !important; padding: 56px 50px 40px !important; overflow: visible !important;
-    background: #eef2e6 !important;
-    border: 1px solid #d2e2ba !important; border-radius: 20px !important;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.6) !important;
-}
-.ds-diamond { position: relative !important; width: 320px; height: 320px; margin: 0 auto; overflow: visible !important; }
-/* 흙(basepath) 테두리 다이아몬드 — border가 흙색, 안쪽 fill이 잔디색 */
-.ds-diamond::before {
-    content: ""; position: absolute; top: 50%; left: 50%; width: 160px; height: 160px; z-index: 0;
-    background: linear-gradient(135deg, #8fb673 0%, #7fa668 100%);
-    border: 24px solid #c89f6c; border-radius: 10px; transform: translate(-50%, -50%) rotate(45deg);
-    box-shadow: inset 0 0 0 3px rgba(169,127,78,0.6), 0 6px 16px rgba(70,45,15,0.15);
-}
-.ds-diamond::after {
-    content: "HOME"; position: absolute; top: 102.8%; left: 50%; transform: translateX(-50%); z-index: 1;
-    font-family: 'Share Tech Mono', monospace; font-size: 10px; color: #7c8a63; letter-spacing: 0.08em;
-}
-/* Gradio가 절대배치 자식들을 감싸는 .form 래퍼의 auto-height가 거의 0으로 붕괴되면서
-   overflow:hidden(기본값)에 베이스가 잘려 보이는 문제 — 명시적으로 visible 처리 */
-.ds-diamond .form { overflow: visible !important; height: auto !important; }
-/* 마운드 — .form이 체크박스 3개를 감싸는 실제 DOM 요소라 여기 붙여야 다이아몬드 중앙에 정확히 놓인다 */
-.ds-diamond .form::before {
-    content: ""; position: absolute; top: 50%; left: 50%; width: 34px; height: 34px; z-index: 0;
-    background: radial-gradient(circle at 35% 32%, #d3ab7d, #a97f4e); border-radius: 50%;
-    box-shadow: 0 3px 6px rgba(40,25,8,0.35); transform: translate(-50%, -50%);
-}
-.ds-base-card {
-    position: absolute !important; width: 96px !important; background: transparent !important;
-    border: none !important; padding: 0 !important; box-shadow: none !important; z-index: 2;
-    overflow: visible !important; height: auto !important; transform: translate(-50%, -50%);
-}
-/* 2루=인필드 상단 꼭짓점 / 3루=좌측 꼭짓점 / 1루=우측 꼭짓점보다 한 칸 더 바깥으로 띄워
-   흙/잔디 필드 테두리와 겹치지 않게 한다 */
-.ds-base-card.ds-base-2b { top: -4.7%; left: 50%; }
-.ds-base-card.ds-base-3b { top: 50%; left: -4.7%; }
-.ds-base-card.ds-base-1b { top: 50%; left: 104.7%; }
-.ds-base-card label {
-    display: flex !important; flex-direction: column-reverse !important; align-items: center !important; gap: 8px;
-    cursor: pointer;
-}
-.ds-base-card label span {
-    font-size: 14px !important; font-weight: 800; color: #4a4638; letter-spacing: 0.02em;
-    transition: all 0.15s ease;
-}
-.ds-base-card input[type=checkbox] {
-    appearance: none; -webkit-appearance: none; width: 40px !important; height: 40px !important; margin: 0 !important;
-    background: linear-gradient(145deg, #fffdf8, #ece6d4); border: 2.5px solid #ffffff; border-radius: 7px;
-    transform: rotate(45deg); cursor: pointer; transition: all 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
-    box-shadow: 0 3px 8px rgba(40,30,10,0.25), inset 0 -2px 3px rgba(0,0,0,0.06);
-}
-.ds-base-card input[type=checkbox]:hover { border-color: #c8102e; transform: rotate(45deg) scale(1.1); }
-/* 체크 시 확실히 티나게: 확대 + 진한 레드 + 이중 글로우 링 */
-.ds-base-card input[type=checkbox]:checked {
-    background: linear-gradient(145deg, #ff3b57, #b3081f) !important; border-color: #ffffff !important;
-    border-width: 3px !important; transform: rotate(45deg) scale(1.4);
-    box-shadow: 0 0 0 4px rgba(255,255,255,0.9), 0 0 0 9px rgba(200,16,46,0.35),
-                0 0 18px 4px rgba(200,16,46,0.5), 0 4px 12px rgba(168,13,36,0.55);
-}
-.ds-base-card:has(input:checked) label span {
-    color: #ffffff; background: #c8102e; padding: 2px 10px; border-radius: 6px;
-    box-shadow: 0 2px 6px rgba(168,13,36,0.4);
-}
-/* 버튼: Primary(레드)/Ghost(아웃라인) 2종만 사용 */
-.gradio-container button { font-size: 16.5px !important; border-radius: 8px !important; }
-.ds-btn-analyze {
-    background: #c8102e !important; color: #ffffff !important; border: none !important;
-    font-weight: 800 !important; box-shadow: 0 4px 10px rgba(200,16,46,0.28) !important;
-}
-.ds-btn-analyze:hover { box-shadow: 0 6px 16px rgba(200,16,46,0.4) !important; transform: translateY(-1px); }
-/* "다음" 버튼은 "분석 실행"(레드)과 시각적으로 구분되도록 네이비로 분리 */
-.ds-btn-next {
-    background: #14203c !important; color: #ffffff !important; border: none !important;
-    font-weight: 800 !important; box-shadow: 0 4px 10px rgba(20,32,60,0.28) !important;
-}
-.ds-btn-next:hover { box-shadow: 0 6px 16px rgba(20,32,60,0.4) !important; transform: translateY(-1px); }
-/* STEP 4(마지막 스텝)에서는 '다음' 버튼을 숨긴다. Python에서 두 버튼의 visible=을 함께 토글하면
-   간헐적으로 갱신이 누락되는 문제가 있어(위 _analyze_btn_update 설명 참고), '분석 실행'이 보일 때
-   CSS 형제 선택자로 '다음'을 숨기는 방식으로 대체했다. */
-.ds-btn-analyze:not(.hidden) ~ .ds-btn-next { display: none !important; }
-.ds-btn-prev, .ds-btn-reset {
-    background: transparent !important; color: #6b6555 !important; border: 1.5px solid #ddd8ca !important;
-    box-shadow: none !important; font-weight: 700 !important;
-}
-.ds-btn-prev:hover, .ds-btn-reset:hover { border-color: #14203c !important; color: #14203c !important; }
-.ds-btn-reset { margin-bottom: 10px !important; }
-/* 이전/다음/분석 실행 버튼은 한 줄(Row)에 나란히 놓이므로 높이를 강제로 맞춘다.
-   .ds-btn-analyze는 Gradio variant="primary" 기본 패딩이 달라 그대로 두면 더 커 보였다. */
-.ds-btn-prev, .ds-btn-next, .ds-btn-analyze {
-    padding: 12px 18px !important; min-height: 46px !important; box-sizing: border-box !important;
-    margin-top: 0 !important;
-}
-.ds-btn-pdf {
-    background: transparent !important; color: #14203c !important; border: 1.5px solid #14203c !important;
-    font-size: 15px !important; padding: 11px !important; font-weight: 700 !important; box-shadow: none !important;
-}
-.ds-btn-pdf:hover { background: #14203c !important; color: #ffffff !important; }
-/* Gradio가 버튼을 감싸는 .styler 래퍼에 자체 배경(#e6e1d3)을 깔아서, 버튼 자체를
-   transparent로 둬도 뒤에서 베이지색이 비쳐 보였다. 래퍼 배경을 투명화해 카드(.ds-board)의
-   흰 배경이 그대로 보이게 한다. (Gradio 6.19.0 기준, 버전 업그레이드 시 DOM 구조 변경 여부 재확인 필요) */
-.styler:has(> .ds-btn-pdf) { background: transparent !important; }
-/* PDF 다운로드 박스: 기본 Gradio File은 큰 드롭존으로 보여 어색하다. 생성 후에만 노출되므로
-   얇은 링크형 카드로 축소한다. */
-.ds-pdf-file { margin-top: 8px !important; }
-.ds-pdf-file .upload-container, .ds-pdf-file .empty { min-height: unset !important; padding: 0 !important; }
-.ds-pdf-file button.reset-button, .ds-pdf-file .icon-buttons { display: none !important; }
-.ds-pdf-file a, .ds-pdf-file .file-name, .ds-pdf-file [data-testid="file"] {
-    background: #f7f5ef !important; border: 1.5px solid #14203c !important; border-radius: 10px !important;
-    padding: 10px 14px !important; font-weight: 700 !important; color: #14203c !important;
-}
-/* 입력 컴포넌트 라벨/텍스트 가독성 */
-.gradio-container label span, .gradio-container .label-wrap span { font-size: 16.5px !important; }
-/* STRIKE ZONE BOARD 카드 (내부 SVG 히트맵 자체 색상은 별도 보정) */
-.ds-zone-card {
-    background: #ffffff;
-    border: 1px solid #e6e1d3; border-radius: 16px; padding: 18px 20px 14px;
-    box-shadow: 0 4px 14px rgba(20,32,60,0.06);
-}
-.ds-zone-header { text-align: center; letter-spacing: 0.06em; font-weight: 800; }
-.ds-zone-header-en { color: #c8102e; font-size: 20px; }
-.ds-zone-header-sep { color: #b8ae94; margin: 0 10px; font-weight: 400; }
-.ds-zone-header-kr { color: #14203c; font-size: 18px; }
-.ds-zone-badge {
-    background: rgba(200,16,46,0.08); color: #c8102e; border: 1px solid rgba(200,16,46,0.3);
-    border-radius: 999px; font-size: 11px; padding: 3px 10px; margin-left: 10px; letter-spacing: 0.05em;
-}
-.ds-zone-sub { text-align: center; color: #6b6555; font-size: 13.5px; margin-top: 4px; }
-.ds-zone-svg { width: 100%; height: auto; display: block; margin-top: 6px; }
-.ds-zone-footer {
-    display: flex; align-items: center; justify-content: space-between; color: #6b6555;
-    font-size: 13px; margin-top: 4px; gap: 10px;
-}
-.ds-zone-legend { display: flex; align-items: center; gap: 8px; }
-.ds-zone-legend-pill {
-    width: 70px; height: 8px; border-radius: 999px;
-    background: linear-gradient(90deg, rgb(8,145,178), rgb(225,29,72));
-}
-.ds-zone-legend-label { font-size: 11px; color: #9a927c; }
-.ds-zone-caption { text-align: center; color: #14203c; font-weight: 700; font-size: 15px; margin-top: 10px; }
-/* 분석 완료/진행 상태 표시 */
-.ds-status {
-    text-align: center; font-weight: 700; font-size: 14.5px; padding: 10px 14px;
-    border-radius: 10px; margin: 6px 0 14px 0;
-}
-.ds-status-done { background: rgba(31,138,76,0.08); color: #1f8a4c; border: 1px solid rgba(31,138,76,0.3); }
-.ds-status-pending { background: rgba(184,134,11,0.08); color: #8a6d00; border: 1px solid rgba(184,134,11,0.3); }
-
-/* ===== 위저드 카드 ===== */
-.ds-wizard-card { position: relative; }
-.ds-wizard-card[style*="display: none"] {
-    display: none !important; height: 0 !important; min-height: 0 !important;
-    padding: 0 !important; margin: 0 !important; border: none !important; overflow: hidden !important;
-}
-/* 스텝 전환 애니메이션 — Gradio가 비활성 스텝에 인라인 style="display: none"을 걸었다가
-   빼는 방식으로 전환하므로, display:none에서 벗어날 때마다 애니메이션이 처음부터 다시
-   재생된다(별도 JS 트리거 불필요). */
-.ds-wizard-card:not([style*="display: none"]) {
-    animation: ds-step-in 0.32s ease;
-}
-@keyframes ds-step-in {
-    from { opacity: 0; transform: translateX(14px); }
-    to { opacity: 1; transform: translateX(0); }
-}
-@media (prefers-reduced-motion: reduce) {
-    .ds-wizard-card { animation: none !important; }
-}
-/* 스텝 전환은 위쪽 진행 트랙으로만 하므로 gr.Tabs 기본 헤더는 숨긴다
-   (Gradio 6.19.0 기준, 버전 업그레이드 시 DOM 구조 변경 여부 재확인 필요) */
-.ds-wizard-tabs > .tab-wrapper { display: none !important; }
-
-/* ===== 위저드 진행 트랙 (완료=레드 밑줄 / 현재=네이비 강조 / 예정=연한 회색) ===== */
-.ds-wizard-progress { gap: 4px !important; margin: 4px 0 22px 0 !important; flex-wrap: nowrap !important; }
-.ds-step-dot {
-    flex: 1; border-radius: 8px 8px 0 0 !important; border: none !important;
-    border-bottom: 3px solid #ddd8ca !important; background: transparent !important; box-shadow: none !important;
-    color: #b8ae94 !important; font-weight: 700 !important; padding: 10px 6px !important; font-size: 13.5px !important;
-}
-.ds-step-dot:hover { color: #14203c !important; }
-.ds-step-done { border-bottom-color: #c8102e !important; color: #c8102e !important; }
-/* 색상만으로 완료 상태를 구분하면 색각 이상 사용자가 인지하기 어려우므로 체크마크를 덧붙인다 */
-.ds-step-done::after { content: " \\2713"; }
-.ds-step-now {
-    border-bottom-color: #14203c !important; color: #14203c !important;
-    background: #f7f5ef !important; border-radius: 8px 8px 0 0 !important;
-}
-.ds-step-next { border-bottom-color: #ddd8ca !important; color: #b8ae94 !important; }
-
-/* ===== 현재 매치업 요약 패널 (데스크톱 전용) — 이름만 크게 보여준다 ===== */
-.ds-matchup-panel {
-    display: none;
-    background: #14203c !important; color: #ffffff !important;
-    border-radius: 16px !important; padding: 26px !important;
-    flex-direction: column; justify-content: center; align-items: center; text-align: center;
-}
-.ds-matchup-panel .ds-mp-title {
-    font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #b9c3dd; text-transform: uppercase;
-    border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 12px; margin-bottom: 16px; width: 100%;
-}
-.ds-matchup-panel .ds-mp-role {
-    font-size: 13px; font-weight: 700; letter-spacing: 0.06em; color: #b9c3dd; text-transform: uppercase; margin-top: 16px;
-}
-.ds-matchup-panel .ds-mp-name { font-size: 25px; font-weight: 800; color: #ffffff; margin-top: 4px; }
-.ds-matchup-panel .ds-mp-vs {
-    color: #c8102e; font-weight: 800; font-size: 15px; letter-spacing: 0.1em; margin: 18px 0 2px;
-}
-
-/* ===== 결과 화면 코칭 보드 레이아웃 ===== */
-/* 코칭 보드 재정리: 추천 구종/존 보드는 전체 폭 하이라이트, 위험도·상대 패턴은 보조 2열 정보로 분리 */
-.ds-quick-row { display: grid !important; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 0; }
-@media (max-width: 639px) { .ds-quick-row { grid-template-columns: 1fr; } }
-.ds-board-section-title { margin: 18px 0 8px 0 !important; }
-.ds-board-section-title h4 {
-    font-size: 15px !important; font-weight: 800 !important; color: #14203c !important;
-    letter-spacing: 0.02em; border-left: 4px solid #c8102e; padding-left: 10px; margin: 0 !important;
-}
-
-/* ===== 카운트/이닝 시각화 스코어보드 (STEP 2, 원시 입력값을 읽기 쉽게 재표시) ===== */
-.ds-count-board {
-    display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
-    background: #14203c; border-radius: 12px; padding: 14px 18px; margin: 8px 0 16px 0;
-}
-.ds-cb-item { display: flex; align-items: center; gap: 6px; }
-.ds-cb-label { font-family: 'Share Tech Mono', monospace; color: #b9c3dd; font-weight: 700; font-size: 14px; margin-right: 2px; }
-.ds-cb-dot { width: 16px; height: 16px; border-radius: 50%; background: rgba(255,255,255,0.15); display: inline-block; }
-.ds-cb-dot.on { background: var(--c); }
-.ds-cb-inning {
-    margin-left: auto; font-family: 'Share Tech Mono', monospace; color: #ffffff; font-weight: 800; font-size: 17px;
-}
-
-/* ===== 반응형 브레이크포인트 ===== */
-@media (min-width: 1280px) {
-    .ds-matchup-panel { display: flex; }
-    .ds-wizard-row { align-items: stretch !important; }
-}
-@media (max-width: 639px) {
-    /* flex:1 인 버튼은 기본 min-width:auto 때문에 텍스트 폭 밑으로 줄어들지 않아, 4개를 한 줄에
-       나눠 담을 좁은 화면에서 뒤쪽 스텝(3/4)이 트랙 밖으로 밀려나 보이지 않는 문제가 있었다.
-       min-width:0으로 강제 축소를 허용하고, 넘치는 텍스트는 말줄임표로 처리한다. */
-    .ds-step-dot {
-        font-size: 11.5px !important; padding: 8px 3px !important; letter-spacing: -0.01em !important;
-        min-width: 0 !important; overflow: hidden !important; text-overflow: ellipsis !important;
-        white-space: nowrap !important;
-    }
-    .ds-panel, .ds-board, .ds-qa-panel { padding: 16px 14px !important; }
-}
-
-/* ===== 좌우 여백(카드 폭 밖) 장식 배경 — 야구 실밥 느낌의 대각선 패턴 + 은은한 포인트 컬러 ===== */
-body {
-    background:
-        radial-gradient(circle at 4% 15%, rgba(200,16,46,0.06) 0%, transparent 42%),
-        radial-gradient(circle at 96% 80%, rgba(20,32,60,0.07) 0%, transparent 42%),
-        repeating-linear-gradient(135deg, rgba(20,32,60,0.035) 0px, rgba(20,32,60,0.035) 2px, transparent 2px, transparent 26px),
-        #f4f2ec !important;
-}
-
-/* ===== 랜딩 화면 ===== */
-.ds-landing-hero { text-align: center; padding: 34px 20px 10px; }
-.ds-landing-badge {
-    display: inline-block; background: rgba(200,16,46,0.08); color: #c8102e; border: 1px solid rgba(200,16,46,0.3);
-    border-radius: 999px; font-size: 13px; font-weight: 700; padding: 5px 14px; letter-spacing: 0.05em;
-}
-.ds-landing-title { font-size: 40px; font-weight: 800; color: #14203c; margin: 14px 0 8px; }
-.ds-landing-sub { font-size: 18px; color: #4b463c; max-width: 620px; margin: 0 auto; line-height: 1.6; }
-.ds-landing-features { gap: 16px !important; margin: 24px 0 !important; }
-.ds-landing-feature {
-    background: #ffffff; border: 1px solid #e6e1d3; border-radius: 14px; padding: 22px 20px; height: 100%;
-    box-shadow: 0 4px 14px rgba(20,32,60,0.06);
-}
-.ds-lf-title { font-family: 'Teko', sans-serif; font-size: 21px; font-weight: 800; color: #c8102e; margin-bottom: 8px; }
-.ds-lf-desc { font-size: 15px; color: #4b463c; line-height: 1.5; }
-.ds-landing-start { display: block !important; margin: 8px auto 30px !important; min-width: 220px; font-size: 19px !important; }
-"""
+def _pitch_gauges(pattern: dict | None) -> list[tuple[str, float]]:
+    """구종 비율 상위 3개를 선수 카드 게이지(라벨, 0~1 비율)로 변환한다."""
+    if not pattern:
+        return []
+    return [
+        (f"{pitch_label_kr(p['pitch_label'])}({p['pitch_label']})", float(p["ratio"]))
+        for p in pattern.get("top_pitches", [])[:3]
+    ]
 
 
-# ============================================================================
-# 카드형 결과 표시 (Top-3 랭킹 카드 / 히어로 추천 카드 / 인사이트 카드)
-# ============================================================================
-
-def render_top3_cards(top3: list[dict], title: str) -> str:
-    """예측 확률 Top-3를 단순 라벨 대신 순위 카드(금/은/동 + 확률 바)로 보여준다."""
-    medal_colors = ["#c8102e", "#8a8375", "#b8860b"]
-    rows = []
-    max_prob = max((item["probability"] for item in top3), default=1.0) or 1.0
-    for i, item in enumerate(top3[:3]):
-        kr = pitch_label_kr(item["pitch_label"])
-        pct = item["probability"]
-        bar_width = round(100 * pct / max_prob)
-        color = medal_colors[i] if i < len(medal_colors) else "#6b6555"
-        rows.append(f"""
-        <div style="display:flex; align-items:center; gap:14px; margin:12px 0;">
-          <div style="width:32px; height:32px; border-radius:50%; background:{color}; color:#ffffff; font-size:15px;
-                      font-weight:800; display:flex; align-items:center; justify-content:center; flex-shrink:0;">{i + 1}</div>
-          <div style="flex:1;">
-            <div style="display:flex; justify-content:space-between; font-size:16px;">
-              <span style="font-weight:700; color:#14203c;">{kr} ({item['pitch_label']})</span>
-              <span style="color:{color}; font-weight:700;">{pct:.1%}</span>
-            </div>
-            <div style="background:#f0ece0; border-radius:6px; height:10px; margin-top:6px;">
-              <div style="background:{color}; width:{bar_width}%; height:10px; border-radius:6px;"></div>
-            </div>
-          </div>
-        </div>""")
-    return f"""
-    <div style="background:#ffffff; border:1px solid #e6e1d3; border-radius:14px; padding:18px 22px;">
-      <div style="font-size:15px; color:#6b6555; margin-bottom:10px;">{title}</div>
-      {"".join(rows)}
-    </div>"""
-
-
-def render_hero_recommend_card(
-    hero_label: str, hero_value: str, hero_note: str, secondary_label: str, secondary_value: str, accent: str = "#1f8a4c",
+def render_matchup_column(
+    mode: str, pitcher_id, batter_id,
+    pitcher_gauges: list[tuple[str, float]] | None = None,
+    pitcher_note: str = "분석을 실행하면 구종 비율이 표시됩니다",
+    batter_note: str = "분석을 실행하면 약점 구종이 표시됩니다",
 ) -> str:
-    """가장 중요한 추천 결과(추천 구종 또는 노릴 코스)를 큰 히어로 카드로, 나머지(피해야 할 구종/대응
-    전략)는 아래 보조 카드로 보여준다."""
-    return f"""
-    <div style="background:linear-gradient(135deg, {accent}1a 0%, #ffffff 70%); border:1.5px solid {accent};
-                border-radius:16px; padding:22px 24px;">
-      <div style="font-size:15px; color:#6b6555;">{hero_label}</div>
-      <div style="font-size:28px; font-weight:900; color:{accent}; margin:8px 0;">{hero_value}</div>
-      <div style="font-size:14px; color:#4b463c;">{hero_note}</div>
-    </div>
-    <div style="background:#ffffff; border:1px solid #e6e1d3; border-radius:14px; padding:16px 20px; margin-top:14px;">
-      <div style="font-size:15px; color:#6b6555;">{secondary_label}</div>
-      <div style="font-size:16px; color:#14203c; font-weight:600; margin-top:4px;">{secondary_value}</div>
-    </div>"""
-
-
-def render_insight_card(title: str, text: str) -> str:
-    return f"""
-    <div style="background:#ffffff; border:1px solid #e6e1d3; border-radius:14px; padding:18px 22px;">
-      <div style="font-size:15px; color:#6b6555; margin-bottom:6px;">{title}</div>
-      <div style="font-size:16px; color:#14203c; line-height:1.6;">{text}</div>
-    </div>"""
-
-
-def render_analysis_status(done: bool) -> str:
-    """분석 실행 버튼을 눌렀을 때 "분석 중..."(done=False) -> "분석 완료"(done=True) 상태를
-    명확히 보여준다. 완료 시각을 함께 표시해 같은 문구를 다시 눌러도 갱신됐음을 알 수 있게 한다."""
-    if not done:
-        return '<div class="ds-status ds-status-pending">⏳ 분석 중입니다...</div>'
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    return f'<div class="ds-status ds-status-done">✅ 분석 완료 — 코칭 보드가 갱신되었습니다 · 마지막 분석 시간 {timestamp}</div>'
-
-
-def _render_matchup_panel(my_label: str, my_name: str, opponent_label: str, opponent_name: str) -> str:
-    """데스크톱(≥1280px) 2단 레이아웃 우측에 상시 노출되는 "현재 매치업" 패널.
-    누가 누구와 붙는지만 크게 보여주는 용도라 이름만 표시한다 — 카운트/이닝은
-    STEP 2의 시각화 스코어보드(render_count_scoreboard)에서 이미 보여주므로 중복하지 않는다.
-    모바일/태블릿에서는 .ds-matchup-panel이 display:none이라 이 패널 자체가 안 보이므로,
-    좁은 화면에서는 STEP 1로 돌아가야 매치업을 다시 확인할 수 있다."""
-    return f"""
-    <div class="ds-mp-title">현재 매치업</div>
-    <div class="ds-mp-role">{my_label}</div>
-    <div class="ds-mp-name">{my_name}</div>
-    <div class="ds-mp-vs">VS</div>
-    <div class="ds-mp-role">{opponent_label}</div>
-    <div class="ds-mp-name">{opponent_name}</div>
-    """
-
-
-def render_pitcher_matchup_summary(pitcher_id, batter_id) -> str:
-    """pitcher_id/batter_id는 .change() 와이어링에서 gr.Dropdown(choices=(label, id) 튜플)이
-    실제로 넘겨주는 id 값이므로, 표시용 이름으로 변환해서 렌더링한다."""
-    return _render_matchup_panel(
-        "내 투수", scouting_service.get_pitcher_name(pitcher_id),
-        "상대 타자", get_batter_display(batter_id),
+    """좌측 매치업 컬럼. 투수/타자 카드는 항상 같은 순서로 그리고, 역할 배지만 모드에 따라 뒤집는다.
+    선수 이름은 CSV에서 온 외부 문자열이므로 render_player_card 안에서 html.escape 된다."""
+    pitcher_role, batter_role = ("내 투수", "상대 타자") if mode == "pitcher" else ("상대 투수", "내 타자")
+    pitcher_card = render_player_card(
+        scouting_service.get_pitcher_name(pitcher_id),
+        f"{_hand_kr(scouting_service.get_pitcher_throws(pitcher_id))}투",
+        pitcher_note, pitcher_gauges or [],
     )
-
-
-def render_batter_matchup_summary(batter_id, pitcher_id) -> str:
-    return _render_matchup_panel(
-        "내 타자", get_batter_display(batter_id),
-        "상대 투수", scouting_service.get_pitcher_name(pitcher_id),
+    batter_card = render_player_card(
+        get_batter_display(batter_id),
+        f"{_hand_kr(scouting_service.get_batter_stand(batter_id))}타",
+        batter_note, [],
     )
-
-
-def render_count_scoreboard(balls, strikes, outs, inning, topbot) -> str:
-    """STEP 2의 슬라이더/숫자 입력값을 게임 스코어보드처럼 한눈에 보이게 재표시한다.
-    원시 입력 컴포넌트(gr.Slider 등)는 그대로 두고, 그 값을 읽어 시각화만 추가하는 방식이라
-    실제 분석에 쓰이는 값(=원시 입력값)과 화면에 보이는 값이 항상 일치한다."""
-    def _dots(n: int, total: int, color: str) -> str:
-        n = int(n)
-        return "".join(
-            f'<span class="ds-cb-dot{" on" if i < n else ""}" style="--c:{color}"></span>'
-            for i in range(total)
-        )
-    inning_display = inning if inning is not None else "-"
-    topbot_short = "초" if "초" in topbot else "말"
+    mine = "ds-mu-slot--mine" if mode == "pitcher" else "ds-mu-slot--rival"
+    rival = "ds-mu-slot--rival" if mode == "pitcher" else "ds-mu-slot--mine"
     return f"""
-    <div class="ds-count-board">
-      <div class="ds-cb-item"><span class="ds-cb-label">B</span>{_dots(balls, 3, '#1f8a4c')}</div>
-      <div class="ds-cb-item"><span class="ds-cb-label">S</span>{_dots(strikes, 2, '#b8860b')}</div>
-      <div class="ds-cb-item"><span class="ds-cb-label">O</span>{_dots(outs, 2, '#c8102e')}</div>
-      <div class="ds-cb-inning">{inning_display}회 {topbot_short}</div>
-    </div>
+<div class="ds-matchup">
+  <div class="ds-mu-slot {mine}"><div class="ds-mu-role">{pitcher_role}</div>{pitcher_card}</div>
+  <div class="ds-vs"><span class="ds-vs__txt">VS</span></div>
+  <div class="ds-mu-slot {rival}"><div class="ds-mu-role">{batter_role}</div>{batter_card}</div>
+</div>
+""".strip()
+
+
+def _runners_text(on1b: int, on2b: int, on3b: int) -> str:
+    names = [name for name, on in (("1루", on1b), ("2루", on2b), ("3루", on3b)) if on]
+    return ", ".join(names) if names else "없음"
+
+
+def _top3_section(top3: list[dict], caption: str) -> str:
+    """모드마다 Top-3의 뜻이 달라서(내가 던질 구종 vs 상대가 던져올 구종) 캡션을 붙인다.
+    섹션 제목("예측 확률 Top-3")만으로는 어느 쪽인지 알 수 없다."""
+    return f'<p class="ds-caption">{html.escape(caption)}</p>{render_top3_gauges(top3)}'
+
+
+def _compose_result_html(meta: dict, hero_html: str, top3_html: str, risk_html: str, insight_html: str) -> str:
+    """우측 결과 컬럼 한 덩어리. 상황 요약 → 히어로 추천 → Top-3 → 위험도 → 참고 순서는 목업과 같다."""
+    c = meta["context"]
+    topbot = "초" if c["inning_topbot_enc"] == 1 else "말"
+    situation = (
+        f"<b>{c['inning']}회{topbot}</b> · {c['balls']}B–{c['strikes']}S–{c['outs_when_up']}아웃 · "
+        f"주자 {_runners_text(c['on_1b'], c['on_2b'], c['on_3b'])} · "
+        f"우리 <b>{meta['our_score']}</b> : 상대 <b>{meta['opponent_score']}</b> ({meta['score_situation_label']})"
+    )
+    return f"""
+<p class="ds-situation">{situation}</p>
+{hero_html}
+<div class="ds-sec"><div class="ds-sec__t">예측 확률 Top-3</div>{top3_html}</div>
+<div class="ds-sec"><div class="ds-sec__t">위험도</div>{risk_html}</div>
+<div class="ds-sec"><div class="ds-sec__t">참고</div>{insight_html}</div>
+""".strip()
+
+
+# 페이로드가 엔진으로 들어가는 유일한 통로. change와 load 두 곳에서 같은 것을 쓴다.
+_SCENE_UPDATE_JS = "(v) => { if (v && window.dsScene) { window.dsScene.update(JSON.parse(v)); } }"
+
+
+def _empty_scene_payload(mode: str) -> str:
+    """분석 전·모드 전환 직후의 씬. 9칸을 전부 0으로 두면 엔진이 중립색으로 그린다.
+
+    빈 문자열을 보내면 캔버스가 직전 모드의 그림을 그대로 들고 있어, 시점을 바꿨는데
+    화면은 안 바뀌는 상태가 된다. 타석(stand)은 분석 전이라 알 수 없으므로 목업과 같은
+    기본값 L을 쓴다 — 값이 전부 0이라 좌/우 어느 쪽이든 격자 모양은 같다.
     """
+    return json.dumps(build_scene_payload(
+        mode=mode, stand="L", zone_scores={}, highlight_cell=5, metric="",
+    ))
 
 
 # ============================================================================
 # Gradio 레이아웃
 # ============================================================================
 
-WIZARD_STEP_LABELS = ["STEP 1 매치업", "STEP 2 상황판", "STEP 3 베이스&스코어", "STEP 4 작전지시"]
+MODE_CHOICES = [("투수 모드", "pitcher"), ("타자 모드", "batter")]
+TOPBOT_CHOICES = ["초(Top)", "말(Bot)"]
+MAX_INNING = 20
+MAX_SCORE = 30
+
+HEADER_HTML = """
+<header class="ds-top">
+  <div class="ds-brand">
+    <span class="ds-brand__mark" aria-hidden="true"></span>
+    <span class="ds-brand__word">DiamondScout</span>
+    <span class="ds-brand__sub">덕아웃 콘솔</span>
+  </div>
+  <div class="ds-top__note">다음 구종 예측 · 위험도 · 상대 분석을 한 화면에서 확인합니다</div>
+</header>
+"""
+
+RESULT_EMPTY_HTML = (
+    '<p class="ds-situation">아직 분석하지 않았습니다. 상황을 맞춘 뒤 좌측 <b>분석 실행</b>을 누르세요.</p>'
+)
 
 
-def _step_dot_classes(step: int) -> list[list[str]]:
-    """1~4번 스텝 진행 트랙 버튼에 완료(레드)/현재(네이비)/예정(연한 회색) 상태 클래스를 계산한다."""
-    classes = []
-    for i in range(1, 5):
-        if i < step:
-            classes.append(["ds-step-dot", "ds-step-done"])
-        elif i == step:
-            classes.append(["ds-step-dot", "ds-step-now"])
-        else:
-            classes.append(["ds-step-dot", "ds-step-next"])
-    return classes
+# ---------------------------------------------------------------------------
+# 상태 → 렌더 (HTML은 표시 전용, 값의 단일 진실 공급원은 gr.State)
+# ---------------------------------------------------------------------------
+
+def _topbot_code(topbot_kr: str) -> str:
+    return "Top" if str(topbot_kr).startswith("초") else "Bot"
 
 
-def _step_dot_updates(step: int):
-    c = _step_dot_classes(step)
+def _on_count_click(kind: str, balls, strikes, outs):
+    """램프를 누르면 해당 카운트만 한 칸 올라가고, 최대치에서 한 번 더 누르면 0으로 돌아간다."""
+    balls, strikes, outs = int(balls), int(strikes), int(outs)
+    if kind == "balls":
+        balls = cycle_value(balls, MAX_BALLS)
+    elif kind == "strikes":
+        strikes = cycle_value(strikes, MAX_STRIKES)
+    else:
+        outs = cycle_value(outs, MAX_OUTS)
+    return balls, strikes, outs, render_count_lamps(balls, strikes, outs)
+
+
+def _on_base_click(index: int, bases):
+    updated = toggle_base(tuple(int(b) for b in bases), index)
+    return updated, render_base_diamond(*updated)
+
+
+def _on_step(field: str, delta: int, inning, topbot, us, them):
+    inning, us, them = int(inning), int(us), int(them)
+    if field == "inning":
+        inning = max(1, min(MAX_INNING, inning + delta))
+    elif field == "us":
+        us = max(0, min(MAX_SCORE, us + delta))
+    else:
+        them = max(0, min(MAX_SCORE, them + delta))
+    return inning, us, them, render_scoreboard(inning, _topbot_code(topbot), us, them)
+
+
+def _on_topbot_change(topbot, inning, us, them):
+    return render_scoreboard(int(inning), _topbot_code(topbot), int(us), int(them))
+
+
+def _on_mode_change(mode, pitcher_id, batter_id, comment):
+    """모드를 바꾸면 직전 결과는 반대 관점의 값이라 그대로 두면 오독을 부른다. 결과를 비운다.
+    코멘트는 사용자가 손대지 않은 기본 문구일 때만 그 모드의 기본값으로 갈아 끼운다."""
+    defaults = {"pitcher": DEFAULT_COMMENT_PITCHER, "batter": DEFAULT_COMMENT_BATTER}
+    next_comment = defaults[mode] if comment in defaults.values() else comment
     return (
-        gr.Button(elem_classes=c[0]), gr.Button(elem_classes=c[1]),
-        gr.Button(elem_classes=c[2]), gr.Button(elem_classes=c[3]),
+        render_matchup_column(mode, pitcher_id, batter_id),
+        _empty_scene_payload(mode),
+        RESULT_EMPTY_HTML,
+        "",
+        None,
+        "",
+        next_comment,
     )
 
 
-def _analyze_btn_update(step: int):
-    """분석 실행 버튼은 마지막 스텝(STEP 4)에서만 노출한다.
-    '다음' 버튼은 별도 visible= 토글 대신, 이 버튼이 보일 때 CSS 형제 선택자(.ds-btn-analyze:not(.hidden) ~
-    .ds-btn-next)로 숨긴다 — 두 버튼의 visible=을 같은 이벤트에 함께 토글하면 두 번째 전환부터
-    간헐적으로 갱신이 반영되지 않는 문제가 있었다(아래 _step_prev 설명과 동일한 Gradio 이슈)."""
-    return gr.Button(visible=int(step) == 4)
+def run_analysis(
+    mode, pitcher_id, batter_id, balls, strikes, outs, inning, topbot, bases, our_score, opponent_score, comment,
+):
+    """모드에 따라 투수/타자 분석으로 갈라준다. 두 함수 모두 (내 선수, 상대 선수) 순서라 인자가 뒤집힌다."""
+    on1b, on2b, on3b = (int(b) for b in bases)
+    args = (balls, strikes, outs, inning, topbot, on1b, on2b, on3b, our_score, opponent_score, comment)
+    if mode == "pitcher":
+        return run_pitcher_analysis(pitcher_id, batter_id, *args)
+    return run_batter_analysis(batter_id, pitcher_id, *args)
 
 
-def _goto_step_1():
-    return (gr.Tabs(selected=0), 1, *_step_dot_updates(1), _analyze_btn_update(1))
+# 씬 엔진이 배경·인물 이미지를 /gradio_api/file= 로 가져간다. 목업은 base64로 인라인했지만
+# 앱에서는 1MB를 매 페이지 로드마다 실어 나를 이유가 없다.
+gr.set_static_paths(paths=[Path(__file__).resolve().parent / "ui" / "static" / "assets"])
 
+# head= 로 넣는 이유: gr.HTML 안의 <script>는 innerHTML 경로라 실행이 보장되지 않는다.
+# 대신 head는 앱 렌더보다 먼저 돌기 때문에, 엔진은 DOM 잡는 일을 mount()로 미뤄 뒀다.
+# Gradio 6에서 css/head는 Blocks가 아니라 launch()가 받는다. Blocks에 넘겨도 하위
+# 호환으로 동작하지만 경고가 뜨고 언젠가 끊긴다.
+SCENE_HEAD = f"<script>{scene_engine_js()}</script>"
 
-def _chip_goto(target: int, current_step) -> tuple:
-    """진행 트랙 칩은 이미 지나왔거나 현재 스텝으로는 자유롭게 이동할 수 있지만, 아직
-    도달하지 않은(예정) 스텝으로는 건너뛸 수 없다 — 내용을 채우지 않고 앞 스텝으로
-    건너뛰는 것을 막기 위해 '다음' 버튼을 눌러야만 전진하도록 강제한다."""
-    current = int(current_step)
-    step = target if target <= current else current
-    return (gr.Tabs(selected=step - 1), step, *_step_dot_updates(step), _analyze_btn_update(step))
+with gr.Blocks(title="DiamondScout AI") as demo:
+    gr.HTML(HEADER_HTML)
 
+    balls_state = gr.State(0)
+    strikes_state = gr.State(0)
+    outs_state = gr.State(0)
+    bases_state = gr.State((0, 0, 0))
+    inning_state = gr.State(1)
+    us_state = gr.State(0)
+    them_state = gr.State(0)
+    result_state = gr.State(None)
 
-def _goto_step_2(current_step):
-    return _chip_goto(2, current_step)
-
-
-def _goto_step_3(current_step):
-    return _chip_goto(3, current_step)
-
-
-def _goto_step_4(current_step):
-    return _chip_goto(4, current_step)
-
-
-def _step_prev(current_step: int):
-    """다음/이전 버튼은 gr.Tabs(selected=)로 카드 하나를 전환한다.
-    Column 4개를 visible= 로 각각 토글하는 방식은 두 번째 전환부터 간헐적으로
-    갱신이 반영되지 않는 문제가 있어 (스텝2->3, 3->4에서 재현), Gradio가 이런
-    스텝형 전환을 위해 제공하는 gr.Tabs(selected=) 방식으로 바꿨다."""
-    target = max(1, int(current_step) - 1)
-    return (gr.Tabs(selected=target - 1), target, *_step_dot_updates(target), _analyze_btn_update(target))
-
-
-def _step_next(current_step: int):
-    target = min(4, int(current_step) + 1)
-    return (gr.Tabs(selected=target - 1), target, *_step_dot_updates(target), _analyze_btn_update(target))
-
-
-with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
-    gr.Markdown("# ⚾ DiamondScout AI")
-    gr.Markdown("투수 모드 / 타자 모드로 나눠, 다음 구종 예측(RandomForest) + 위험도 + 상대 분석 + Q&A를 한 화면에서 확인하는 전력분석 데모")
-
-    with gr.Column(elem_classes=["ds-landing"], visible=True) as landing_view:
-        gr.HTML("""
-        <div class="ds-landing-hero">
-          <div class="ds-landing-badge">전력분석 데모</div>
-          <h2 class="ds-landing-title">다음 투구를 미리 읽는다</h2>
-          <p class="ds-landing-sub">투수·타자 관점에서 다음 구종을 예측하고, 위험도와 상대 약점을 코칭 보드로 정리해드립니다.</p>
-        </div>
-        """)
-        with gr.Row(elem_classes=["ds-landing-features"]):
-            gr.HTML(
-                '<div class="ds-landing-feature"><div class="ds-lf-title">다음 구종 예측</div>'
-                '<div class="ds-lf-desc">상황·매치업을 종합해 Top-3 구종을 추천합니다</div></div>'
-            )
-            gr.HTML(
-                '<div class="ds-landing-feature"><div class="ds-lf-title">위험도 분석</div>'
-                '<div class="ds-lf-desc">패턴 노출·장타·홈런·볼넷 위험을 한눈에 확인합니다</div></div>'
-            )
-            gr.HTML(
-                '<div class="ds-landing-feature"><div class="ds-lf-title">Instant Scout Q&A</div>'
-                '<div class="ds-lf-desc">분석 결과를 근거로 후속 질문에 즉석으로 답합니다</div></div>'
-            )
-        landing_start_btn = gr.Button("시작하기", variant="primary", elem_classes=["ds-btn-analyze", "ds-landing-start"])
-
-    with gr.Tabs(visible=False) as main_tabs:
+    with gr.Row(elem_classes=["ds-console"]):
         # ------------------------------------------------------------------
-        # 투수 모드
+        # 좌 · 매치업
         # ------------------------------------------------------------------
-        with gr.Tab("⚾ 투수 모드"):
-            gr.Markdown("내가 투수라는 관점에서, 다음 투구로 상대를 아웃 처리하거나 약한 타구를 유도하기 좋은 구종/코스를 추천합니다.")
-
-            p_step_state = gr.State(1)
-
-            with gr.Row(elem_classes=["ds-wizard-progress"]):
-                p_chip1 = gr.Button(WIZARD_STEP_LABELS[0], elem_classes=["ds-step-dot", "ds-step-now"], size="sm")
-                p_chip2 = gr.Button(WIZARD_STEP_LABELS[1], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
-                p_chip3 = gr.Button(WIZARD_STEP_LABELS[2], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
-                p_chip4 = gr.Button(WIZARD_STEP_LABELS[3], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
-
-            with gr.Row(elem_classes=["ds-wizard-row"]):
-                with gr.Column(scale=3):
-                    with gr.Tabs(elem_classes=["ds-wizard-tabs"]) as p_wizard_tabs:
-                        with gr.Tab("매치업", id=0):
-                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">STEP 1 · 매치업</div>')
-                                with gr.Row():
-                                    p_pitcher_id_input = gr.Dropdown(choices=DEMO_PITCHER_CHOICES, value=DEFAULT_PITCHER_ID, label="내 투수 ID")
-                                    p_batter_id_input = gr.Dropdown(choices=DEMO_BATTER_CHOICES, value=DEFAULT_BATTER_ID, label="상대 타자 ID")
-                                gr.Markdown("좌타/우타·좌투/우투는 데이터에서 자동으로 추정됩니다.")
-
-                        with gr.Tab("상황판", id=1):
-                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">STEP 2 · 상황판</div>')
-                                gr.Markdown("#### 카운트 스코어보드")
-                                with gr.Row(elem_classes=["ds-scoreboard"]):
-                                    p_balls_input = gr.Slider(0, 3, value=0, step=1, label="볼")
-                                    p_strikes_input = gr.Slider(0, 2, value=0, step=1, label="스트라이크")
-                                    p_outs_input = gr.Slider(0, 2, value=2, step=1, label="아웃")
-                                with gr.Row():
-                                    p_inning_input = gr.Number(value=1, precision=0, label="이닝")
-                                    p_topbot_input = gr.Radio(["초(Top)", "말(Bot)"], value="초(Top)", label="이닝 초/말")
-                                p_count_board_output = gr.HTML(render_count_scoreboard(0, 0, 2, 1, "초(Top)"))
-
-                        with gr.Tab("베이스 & 스코어", id=2):
-                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">STEP 3 · 베이스 & 스코어</div>')
-                                gr.Markdown("#### 주자 상황 — 루를 클릭해 표시하세요")
-                                with gr.Row(elem_classes=["ds-diamond-wrap"]):
-                                    with gr.Column(elem_classes=["ds-diamond"]):
-                                        p_on2b_input = gr.Checkbox(value=False, label="2루", elem_classes=["ds-base-card", "ds-base-2b"])
-                                        p_on3b_input = gr.Checkbox(value=False, label="3루", elem_classes=["ds-base-card", "ds-base-3b"])
-                                        p_on1b_input = gr.Checkbox(value=False, label="1루", elem_classes=["ds-base-card", "ds-base-1b"])
-                                gr.Markdown("#### 스코어")
-                                with gr.Row():
-                                    p_our_score_input = gr.Number(value=0, precision=0, label="우리팀 점수")
-                                    gr.Markdown("<div style='text-align:center; padding-top:28px; font-weight:800;'>:</div>")
-                                    p_opponent_score_input = gr.Number(value=0, precision=0, label="상대팀 점수")
-
-                        with gr.Tab("작전 지시", id=3):
-                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">STEP 4 · 작전 지시</div>')
-                                p_comment_input = gr.Textbox(value=DEFAULT_COMMENT_PITCHER, label="코치에게 전달할 전략 의도", lines=2)
-
-                with gr.Column(scale=2, elem_classes=["ds-matchup-panel"]):
-                    p_matchup_output = gr.HTML(
-                        render_pitcher_matchup_summary(DEFAULT_PITCHER_ID, DEFAULT_BATTER_ID)
-                    )
-
-            # 다음/이전/분석 버튼은 스텝 카드 밖, 항상 마운트된 컨트롤바에 둔다.
-            # analyze -> next 순서로 배치: '다음' 버튼은 별도 visible= 토글 없이, analyze가 보일 때
-            # CSS 형제 선택자(.ds-btn-analyze:not(.hidden) ~ .ds-btn-next)로 숨긴다.
-            with gr.Row():
-                p_prev_btn = gr.Button("⬅ 이전", elem_classes=["ds-btn-prev"])
-                # 초기값은 visible=True로 두고 아래 demo.load()에서 실제 이벤트로 한 번 False로 되돌린다.
-                # STEP1~3에서 처음 STEP4로 넘어갈 때 이 버튼의 visible=이 False->True로 바뀌는 첫 전환이
-                # 간헐적으로 화면에 반영되지 않는 문제가 있었는데(Gradio 컴포넌트가 Python 쪽 정적 초기값에서
-                # 한 번도 실제 업데이트를 거치지 않은 상태로 있다가 처음 값이 바뀔 때 발생), load 시점에
-                # 미리 한 번 실제 업데이트를 거치게 하면 이후 전환은 안정적으로 반영된다.
-                p_analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn-analyze"], visible=True)
-                p_next_btn = gr.Button("다음 ➡", elem_classes=["ds-btn-next"])
-
-            p_reset_btn = gr.Button("다시 분석", elem_classes=["ds-btn-reset"])
-            p_status_output = gr.HTML()
-
-            with gr.Group(elem_classes=["ds-board"], visible=False) as p_board_group:
-                gr.HTML('<div class="ds-board-title">코칭 보드</div>')
-                p_hand_output = gr.Markdown()
-                p_top3_output = gr.HTML()
-
-                gr.Markdown("#### 🎯 추천 구종", elem_classes=["ds-board-section-title"])
-                p_recommend_card_output = gr.HTML()
-
-                with gr.Row(elem_classes=["ds-quick-row"]):
-                    with gr.Column():
-                        gr.Markdown("#### 위험도 카드")
-                        p_risk_html_output = gr.HTML(label="위험도 요약")
-                    with gr.Column():
-                        gr.Markdown("#### 상대 타자 약점")
-                        p_batter_weakness_output = gr.HTML()
-
-                gr.Markdown("#### STRIKE ZONE BOARD", elem_classes=["ds-board-section-title"])
-                p_hotcold_plot = gr.HTML()
-
-                with gr.Accordion("상세 리포트 전체 보기 (근거 · 참고 데이터)", open=False, elem_classes=["ds-report-accordion"]):
-                    p_report_output = gr.Markdown(elem_classes=["ds-report-md"])
-                p_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
-                # 초기값은 visible=True로 두고 demo.load()에서 실제 이벤트로 한 번 False로 되돌린다.
-                # (분석 실행 버튼과 동일한 이유 — Gradio 첫 visible= 전환 누락 버그 회피)
-                p_pdf_file_output = gr.File(label="다운로드 파일", visible=True, elem_classes=["ds-pdf-file"])
-
-            with gr.Group(elem_classes=["ds-qa-panel"], visible=False) as p_qa_group:
-                gr.HTML('<div class="ds-qa-title">Instant Scout Q&A</div>')
-                with gr.Row(elem_classes=["ds-qa-chips"]):
-                    p_example_btns = [gr.Button(q, size="sm") for q in EXAMPLE_QUESTIONS]
-                p_chatbot = gr.Chatbot(label="투수 모드 Q&A", show_label=False, height=340, elem_classes=["ds-chatbot"])
-                with gr.Row(elem_classes=["ds-qa-input-row"]):
-                    p_chat_input = gr.Textbox(label="", placeholder="분석 결과에 대해 질문해보세요", scale=4, container=False)
-                    p_chat_send_btn = gr.Button("전송", scale=1, elem_classes=["ds-btn-send"])
-
-            p_result_state = gr.State(None)
-
-            p_analyze_btn.click(
-                fn=lambda: render_analysis_status(done=False), outputs=[p_status_output],
-            ).then(
-                fn=run_pitcher_analysis,
-                inputs=[
-                    p_pitcher_id_input, p_batter_id_input, p_balls_input, p_strikes_input, p_outs_input,
-                    p_inning_input, p_topbot_input, p_on1b_input, p_on2b_input, p_on3b_input,
-                    p_our_score_input, p_opponent_score_input, p_comment_input,
-                ],
-                outputs=[
-                    p_hand_output, p_top3_output, p_risk_html_output, p_recommend_card_output,
-                    p_batter_weakness_output, p_hotcold_plot, p_report_output, p_result_state, p_status_output,
-                ],
-            ).then(
-                fn=lambda: gr.Group(visible=True), outputs=[p_board_group],
-            ).then(
-                fn=lambda: gr.Group(visible=True), outputs=[p_qa_group],
-            )
-            p_pdf_btn.click(
-                fn=generate_pdf, inputs=[p_result_state], outputs=[p_pdf_file_output],
-            ).then(
-                fn=lambda: gr.File(visible=True), outputs=[p_pdf_file_output],
-            )
-
-            p_wizard_outputs = [p_wizard_tabs, p_step_state, p_chip1, p_chip2, p_chip3, p_chip4, p_analyze_btn]
-            p_matchup_inputs = [p_pitcher_id_input, p_batter_id_input]
-            for comp in p_matchup_inputs:
-                comp.change(fn=render_pitcher_matchup_summary, inputs=p_matchup_inputs, outputs=[p_matchup_output])
-            p_count_inputs = [p_balls_input, p_strikes_input, p_outs_input, p_inning_input, p_topbot_input]
-            for comp in p_count_inputs:
-                comp.change(fn=render_count_scoreboard, inputs=p_count_inputs, outputs=[p_count_board_output])
-            p_prev_btn.click(fn=_step_prev, inputs=[p_step_state], outputs=p_wizard_outputs)
-            p_next_btn.click(fn=_step_next, inputs=[p_step_state], outputs=p_wizard_outputs)
-            p_chip1.click(fn=_goto_step_1, outputs=p_wizard_outputs)
-            p_chip2.click(fn=_goto_step_2, inputs=[p_step_state], outputs=p_wizard_outputs)
-            p_chip3.click(fn=_goto_step_3, inputs=[p_step_state], outputs=p_wizard_outputs)
-            p_chip4.click(fn=_goto_step_4, inputs=[p_step_state], outputs=p_wizard_outputs)
-            p_reset_btn.click(fn=_goto_step_1, outputs=p_wizard_outputs)
-
-            p_chat_send_btn.click(
-                fn=handle_chat, inputs=[p_chat_input, p_chatbot, p_result_state], outputs=[p_chatbot, p_chat_input],
-            )
-            p_chat_input.submit(
-                fn=handle_chat, inputs=[p_chat_input, p_chatbot, p_result_state], outputs=[p_chatbot, p_chat_input],
-            )
-            for btn, question in zip(p_example_btns, EXAMPLE_QUESTIONS):
-                btn.click(fn=lambda q=question: q, outputs=[p_chat_input]).then(
-                    fn=handle_chat, inputs=[p_chat_input, p_chatbot, p_result_state], outputs=[p_chatbot, p_chat_input],
-                )
+        with gr.Column(scale=3, elem_classes=["ds-col-matchup"]):
+            with gr.Column(elem_classes=["ds-card"]):
+                gr.HTML('<div class="ds-card__title">매치업</div>')
+                pitcher_id_input = gr.Dropdown(choices=DEMO_PITCHER_CHOICES, value=DEFAULT_PITCHER_ID, label="투수")
+                batter_id_input = gr.Dropdown(choices=DEMO_BATTER_CHOICES, value=DEFAULT_BATTER_ID, label="타자")
+                matchup_html = gr.HTML(render_matchup_column("pitcher", DEFAULT_PITCHER_ID, DEFAULT_BATTER_ID))
+                comment_input = gr.Textbox(value=DEFAULT_COMMENT_PITCHER, label="작전 지시 (전략 의도)", lines=2)
+                analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn", "ds-btn--primary"])
+                status_output = gr.HTML()
 
         # ------------------------------------------------------------------
-        # 타자 모드
+        # 중 · 스트라이크 존 + 상황 조작
         # ------------------------------------------------------------------
-        with gr.Tab("🏏 타자 모드"):
-            gr.Markdown("내가 타자라는 관점에서, 상대 투수가 다음에 던질 가능성이 높은 구종과 노려야 할 코스를 추천합니다.")
-
-            b_step_state = gr.State(1)
-
-            with gr.Row(elem_classes=["ds-wizard-progress"]):
-                b_chip1 = gr.Button(WIZARD_STEP_LABELS[0], elem_classes=["ds-step-dot", "ds-step-now"], size="sm")
-                b_chip2 = gr.Button(WIZARD_STEP_LABELS[1], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
-                b_chip3 = gr.Button(WIZARD_STEP_LABELS[2], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
-                b_chip4 = gr.Button(WIZARD_STEP_LABELS[3], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
-
-            with gr.Row(elem_classes=["ds-wizard-row"]):
-                with gr.Column(scale=3):
-                    with gr.Tabs(elem_classes=["ds-wizard-tabs"]) as b_wizard_tabs:
-                        with gr.Tab("매치업", id=0):
-                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">STEP 1 · 매치업</div>')
-                                with gr.Row():
-                                    b_batter_id_input = gr.Dropdown(choices=DEMO_BATTER_CHOICES, value=DEFAULT_BATTER_ID, label="내 타자 ID")
-                                    b_pitcher_id_input = gr.Dropdown(choices=DEMO_PITCHER_CHOICES, value=DEFAULT_PITCHER_ID, label="상대 투수 ID")
-                                gr.Markdown("좌타/우타·좌투/우투는 데이터에서 자동으로 추정됩니다.")
-
-                        with gr.Tab("상황판", id=1):
-                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">STEP 2 · 상황판</div>')
-                                gr.Markdown("#### 카운트 스코어보드")
-                                with gr.Row(elem_classes=["ds-scoreboard"]):
-                                    b_balls_input = gr.Slider(0, 3, value=0, step=1, label="볼")
-                                    b_strikes_input = gr.Slider(0, 2, value=0, step=1, label="스트라이크")
-                                    b_outs_input = gr.Slider(0, 2, value=2, step=1, label="아웃")
-                                with gr.Row():
-                                    b_inning_input = gr.Number(value=1, precision=0, label="이닝")
-                                    b_topbot_input = gr.Radio(["초(Top)", "말(Bot)"], value="초(Top)", label="이닝 초/말")
-                                b_count_board_output = gr.HTML(render_count_scoreboard(0, 0, 2, 1, "초(Top)"))
-
-                        with gr.Tab("베이스 & 스코어", id=2):
-                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">STEP 3 · 베이스 & 스코어</div>')
-                                gr.Markdown("#### 주자 상황 — 루를 클릭해 표시하세요")
-                                with gr.Row(elem_classes=["ds-diamond-wrap"]):
-                                    with gr.Column(elem_classes=["ds-diamond"]):
-                                        b_on2b_input = gr.Checkbox(value=False, label="2루", elem_classes=["ds-base-card", "ds-base-2b"])
-                                        b_on3b_input = gr.Checkbox(value=False, label="3루", elem_classes=["ds-base-card", "ds-base-3b"])
-                                        b_on1b_input = gr.Checkbox(value=False, label="1루", elem_classes=["ds-base-card", "ds-base-1b"])
-                                gr.Markdown("#### 스코어")
-                                with gr.Row():
-                                    b_our_score_input = gr.Number(value=0, precision=0, label="우리팀 점수")
-                                    gr.Markdown("<div style='text-align:center; padding-top:28px; font-weight:800;'>:</div>")
-                                    b_opponent_score_input = gr.Number(value=0, precision=0, label="상대팀 점수")
-
-                        with gr.Tab("작전 지시", id=3):
-                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
-                                gr.HTML('<div class="ds-panel-title">STEP 4 · 작전 지시</div>')
-                                b_comment_input = gr.Textbox(value=DEFAULT_COMMENT_BATTER, label="코치에게 전달할 전략 의도", lines=2)
-
-                with gr.Column(scale=2, elem_classes=["ds-matchup-panel"]):
-                    b_matchup_output = gr.HTML(
-                        render_batter_matchup_summary(DEFAULT_BATTER_ID, DEFAULT_PITCHER_ID)
-                    )
-
-            with gr.Row():
-                b_prev_btn = gr.Button("⬅ 이전", elem_classes=["ds-btn-prev"])
-                b_analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn-analyze"], visible=True)
-                b_next_btn = gr.Button("다음 ➡", elem_classes=["ds-btn-next"])
-
-            b_reset_btn = gr.Button("다시 분석", elem_classes=["ds-btn-reset"])
-            b_status_output = gr.HTML()
-
-            with gr.Group(elem_classes=["ds-board"], visible=False) as b_board_group:
-                gr.HTML('<div class="ds-board-title">코칭 보드</div>')
-                b_hand_output = gr.Markdown()
-                b_top3_output = gr.HTML()
-
-                gr.Markdown("#### 🎯 노릴 코스 / 대응 전략", elem_classes=["ds-board-section-title"])
-                b_recommend_card_output = gr.HTML()
-
-                with gr.Row(elem_classes=["ds-quick-row"]):
-                    with gr.Column():
-                        gr.Markdown("#### 위험도 카드")
-                        b_risk_html_output = gr.HTML(label="위험도 요약")
-                    with gr.Column():
-                        gr.Markdown("#### 상대 투수 패턴")
-                        b_pitcher_pattern_output = gr.HTML()
-
-                gr.Markdown("#### STRIKE ZONE BOARD", elem_classes=["ds-board-section-title"])
-                b_hotcold_plot = gr.HTML()
-
-                with gr.Accordion("상세 리포트 전체 보기 (근거 · 참고 데이터)", open=False, elem_classes=["ds-report-accordion"]):
-                    b_report_output = gr.Markdown(elem_classes=["ds-report-md"])
-                b_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
-                b_pdf_file_output = gr.File(label="다운로드 파일", visible=True, elem_classes=["ds-pdf-file"])
-
-            with gr.Group(elem_classes=["ds-qa-panel"], visible=False) as b_qa_group:
-                gr.HTML('<div class="ds-qa-title">Instant Scout Q&A</div>')
-                with gr.Row(elem_classes=["ds-qa-chips"]):
-                    b_example_btns = [gr.Button(q, size="sm") for q in EXAMPLE_QUESTIONS]
-                b_chatbot = gr.Chatbot(label="타자 모드 Q&A", show_label=False, height=340, elem_classes=["ds-chatbot"])
-                with gr.Row(elem_classes=["ds-qa-input-row"]):
-                    b_chat_input = gr.Textbox(label="", placeholder="분석 결과에 대해 질문해보세요", scale=4, container=False)
-                    b_chat_send_btn = gr.Button("전송", scale=1, elem_classes=["ds-btn-send"])
-
-            b_result_state = gr.State(None)
-
-            b_analyze_btn.click(
-                fn=lambda: render_analysis_status(done=False), outputs=[b_status_output],
-            ).then(
-                fn=run_batter_analysis,
-                inputs=[
-                    b_batter_id_input, b_pitcher_id_input, b_balls_input, b_strikes_input, b_outs_input,
-                    b_inning_input, b_topbot_input, b_on1b_input, b_on2b_input, b_on3b_input,
-                    b_our_score_input, b_opponent_score_input, b_comment_input,
-                ],
-                outputs=[
-                    b_hand_output, b_top3_output, b_risk_html_output, b_recommend_card_output,
-                    b_pitcher_pattern_output, b_hotcold_plot, b_report_output, b_result_state, b_status_output,
-                ],
-            ).then(
-                fn=lambda: gr.Group(visible=True), outputs=[b_board_group],
-            ).then(
-                fn=lambda: gr.Group(visible=True), outputs=[b_qa_group],
+        with gr.Column(scale=5, elem_classes=["ds-col-zone"]):
+            mode_input = gr.Radio(
+                MODE_CHOICES, value="pitcher", label="시점 모드", elem_classes=["ds-seg", "ds-seg--wide"],
             )
-            b_pdf_btn.click(
-                fn=generate_pdf, inputs=[b_result_state], outputs=[b_pdf_file_output],
-            ).then(
-                fn=lambda: gr.File(visible=True), outputs=[b_pdf_file_output],
+            gr.HTML(render_scene_canvas())
+            # 씬은 캔버스라 Gradio가 값으로 다시 그릴 수 없다. Python이 만든 페이로드를
+            # 숨긴 텍스트박스에 실어 보내고, 그 change가 JS 엔진을 깨우는 구조다.
+            # 값의 진실 공급원은 계속 Python이고 JS는 표시만 한다(Task 4의 상태 규약과 같다).
+            scene_payload = gr.Textbox(
+                value=_empty_scene_payload("pitcher"), visible=False, elem_id="scenePayload",
             )
+            scene_payload.change(None, scene_payload, None, js=_SCENE_UPDATE_JS)
+            # change는 초기값으로는 안 터진다. load를 걸어주지 않으면 분석 전까지 캔버스가
+            # 빈 사각형으로 남는다(엔진은 update가 와야 처음 그린다).
+            demo.load(None, scene_payload, None, js=_SCENE_UPDATE_JS)
 
-            b_wizard_outputs = [b_wizard_tabs, b_step_state, b_chip1, b_chip2, b_chip3, b_chip4, b_analyze_btn]
-            b_matchup_inputs = [b_batter_id_input, b_pitcher_id_input]
-            for comp in b_matchup_inputs:
-                comp.change(fn=render_batter_matchup_summary, inputs=b_matchup_inputs, outputs=[b_matchup_output])
-            b_count_inputs = [b_balls_input, b_strikes_input, b_outs_input, b_inning_input, b_topbot_input]
-            for comp in b_count_inputs:
-                comp.change(fn=render_count_scoreboard, inputs=b_count_inputs, outputs=[b_count_board_output])
-            b_prev_btn.click(fn=_step_prev, inputs=[b_step_state], outputs=b_wizard_outputs)
-            b_next_btn.click(fn=_step_next, inputs=[b_step_state], outputs=b_wizard_outputs)
-            b_chip1.click(fn=_goto_step_1, outputs=b_wizard_outputs)
-            b_chip2.click(fn=_goto_step_2, inputs=[b_step_state], outputs=b_wizard_outputs)
-            b_chip3.click(fn=_goto_step_3, inputs=[b_step_state], outputs=b_wizard_outputs)
-            b_chip4.click(fn=_goto_step_4, inputs=[b_step_state], outputs=b_wizard_outputs)
-            b_reset_btn.click(fn=_goto_step_1, outputs=b_wizard_outputs)
+            with gr.Column(elem_classes=["ds-card", "ds-ctrl-card"]):
+                gr.HTML('<div class="ds-card__title">상황 조작</div>')
 
-            b_chat_send_btn.click(
-                fn=handle_chat, inputs=[b_chat_input, b_chatbot, b_result_state], outputs=[b_chatbot, b_chat_input],
-            )
-            b_chat_input.submit(
-                fn=handle_chat, inputs=[b_chat_input, b_chatbot, b_result_state], outputs=[b_chatbot, b_chat_input],
-            )
-            for btn, question in zip(b_example_btns, EXAMPLE_QUESTIONS):
-                btn.click(fn=lambda q=question: q, outputs=[b_chat_input]).then(
-                    fn=handle_chat, inputs=[b_chat_input, b_chatbot, b_result_state], outputs=[b_chatbot, b_chat_input],
-                )
+                gr.HTML('<div class="ds-ctrl__label">카운트 — 램프를 눌러 올립니다</div>')
+                # 램프 HTML 위에 투명 버튼 3개를 겹쳐, 목업처럼 램프 줄 자체를 누르게 한다.
+                # 값은 버튼이 아니라 state가 갖고 있으므로 화면값과 실제값이 갈라지지 않는다.
+                with gr.Column(elem_classes=["ds-lamp-stack"]):
+                    count_html = gr.HTML(render_count_lamps(0, 0, 0))
+                    with gr.Column(elem_classes=["ds-lamp-hits"]):
+                        balls_btn = gr.Button("볼 카운트 올리기", elem_classes=["ds-hit-btn"])
+                        strikes_btn = gr.Button("스트라이크 카운트 올리기", elem_classes=["ds-hit-btn"])
+                        outs_btn = gr.Button("아웃 카운트 올리기", elem_classes=["ds-hit-btn"])
 
-    landing_start_btn.click(
-        fn=lambda: (gr.Column(visible=False), gr.Tabs(visible=True)),
-        outputs=[landing_view, main_tabs],
+                gr.HTML('<div class="ds-ctrl__label">주자 — 베이스를 눌러 올리고 내립니다</div>')
+                with gr.Column(elem_classes=["ds-diamond-stack"]):
+                    diamond_html = gr.HTML(render_base_diamond(0, 0, 0))
+                    with gr.Column(elem_classes=["ds-base-hits"]):
+                        base1_btn = gr.Button("1루 주자", elem_classes=["ds-base-hit", "ds-base-hit--1"])
+                        base2_btn = gr.Button("2루 주자", elem_classes=["ds-base-hit", "ds-base-hit--2"])
+                        base3_btn = gr.Button("3루 주자", elem_classes=["ds-base-hit", "ds-base-hit--3"])
+
+                gr.HTML('<div class="ds-ctrl__label">이닝 · 스코어</div>')
+                scoreboard_html = gr.HTML(render_scoreboard(1, "Top", 0, 0))
+                with gr.Row(elem_classes=["ds-steprow"]):
+                    inning_minus_btn = gr.Button("이닝 −", elem_classes=["ds-btn", "ds-btn--ghost", "ds-step-btn"])
+                    inning_plus_btn = gr.Button("이닝 +", elem_classes=["ds-btn", "ds-btn--ghost", "ds-step-btn"])
+                    topbot_input = gr.Radio(TOPBOT_CHOICES, value="초(Top)", label="초/말", elem_classes=["ds-seg"])
+                with gr.Row(elem_classes=["ds-steprow"]):
+                    us_minus_btn = gr.Button("우리 −", elem_classes=["ds-btn", "ds-btn--ghost", "ds-step-btn"])
+                    us_plus_btn = gr.Button("우리 +", elem_classes=["ds-btn", "ds-btn--ghost", "ds-step-btn"])
+                    them_minus_btn = gr.Button("상대 −", elem_classes=["ds-btn", "ds-btn--ghost", "ds-step-btn"])
+                    them_plus_btn = gr.Button("상대 +", elem_classes=["ds-btn", "ds-btn--ghost", "ds-step-btn"])
+
+        # ------------------------------------------------------------------
+        # 우 · 결과
+        # ------------------------------------------------------------------
+        with gr.Column(scale=4, elem_classes=["ds-col-result"]):
+            with gr.Column(elem_classes=["ds-card", "ds-result"]):
+                gr.HTML('<div class="ds-card__title">추천 결과</div>')
+                result_html = gr.HTML(RESULT_EMPTY_HTML)
+
+    with gr.Accordion("코칭 리포트", open=False, elem_classes=["ds-report-accordion"]):
+        report_md = gr.Markdown(elem_classes=["ds-report-md"])
+        pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn", "ds-btn--ghost", "ds-btn-pdf"])
+        # 초기값은 visible=True로 두고 demo.load()에서 실제 이벤트로 한 번 False로 되돌린다
+        # (Gradio가 정적 초기값에서 첫 visible= 전환을 간헐적으로 누락하는 문제 회피).
+        pdf_file_output = gr.File(label="다운로드 파일", visible=True, elem_classes=["ds-pdf-file"])
+
+    with gr.Accordion("Instant Scout Q&A", open=False, elem_classes=["ds-report-accordion"]):
+        with gr.Row(elem_classes=["ds-qa-chips"]):
+            example_btns = [gr.Button(q, size="sm") for q in EXAMPLE_QUESTIONS]
+        chatbot = gr.Chatbot(label="Q&A", show_label=False, height=340, elem_classes=["ds-chatbot"])
+        with gr.Row(elem_classes=["ds-qa-input-row"]):
+            chat_input = gr.Textbox(label="", placeholder="분석 결과에 대해 질문해보세요", scale=4, container=False)
+            chat_send_btn = gr.Button("전송", scale=1, elem_classes=["ds-btn-send"])
+
+    # ----------------------------------------------------------------------
+    # 이벤트 배선: 클릭 → state 갱신 → state가 렌더러를 다시 호출 → HTML 갱신
+    # ----------------------------------------------------------------------
+    count_inputs = [balls_state, strikes_state, outs_state]
+    count_outputs = [balls_state, strikes_state, outs_state, count_html]
+    for btn, kind in ((balls_btn, "balls"), (strikes_btn, "strikes"), (outs_btn, "outs")):
+        btn.click(
+            fn=lambda b, s, o, k=kind: _on_count_click(k, b, s, o),
+            inputs=count_inputs, outputs=count_outputs,
+        )
+
+    for btn, index in ((base1_btn, 0), (base2_btn, 1), (base3_btn, 2)):
+        btn.click(
+            fn=lambda bases, i=index: _on_base_click(i, bases),
+            inputs=[bases_state], outputs=[bases_state, diamond_html],
+        )
+
+    step_inputs = [inning_state, topbot_input, us_state, them_state]
+    step_outputs = [inning_state, us_state, them_state, scoreboard_html]
+    for btn, field, delta in (
+        (inning_minus_btn, "inning", -1), (inning_plus_btn, "inning", 1),
+        (us_minus_btn, "us", -1), (us_plus_btn, "us", 1),
+        (them_minus_btn, "them", -1), (them_plus_btn, "them", 1),
+    ):
+        btn.click(
+            fn=lambda i, t, u, th, f=field, d=delta: _on_step(f, d, i, t, u, th),
+            inputs=step_inputs, outputs=step_outputs,
+        )
+
+    topbot_input.change(
+        fn=_on_topbot_change,
+        inputs=[topbot_input, inning_state, us_state, them_state], outputs=[scoreboard_html],
     )
 
-    demo.load(
-        fn=lambda: (
-            gr.Button(visible=False), gr.Button(visible=False),
-            gr.File(visible=False), gr.File(visible=False),
-        ),
-        outputs=[p_analyze_btn, b_analyze_btn, p_pdf_file_output, b_pdf_file_output],
+    matchup_inputs = [mode_input, pitcher_id_input, batter_id_input]
+    for comp in (pitcher_id_input, batter_id_input):
+        comp.change(fn=render_matchup_column, inputs=matchup_inputs, outputs=[matchup_html])
+    mode_input.change(
+        fn=_on_mode_change, inputs=matchup_inputs + [comment_input],
+        outputs=[matchup_html, scene_payload, result_html, report_md, result_state, status_output, comment_input],
     )
+
+    analyze_btn.click(
+        fn=lambda: render_analysis_status(done=False), outputs=[status_output],
+    ).then(
+        fn=run_analysis,
+        inputs=[
+            mode_input, pitcher_id_input, batter_id_input, balls_state, strikes_state, outs_state,
+            inning_state, topbot_input, bases_state, us_state, them_state, comment_input,
+        ],
+        outputs=[matchup_html, scene_payload, result_html, report_md, result_state, status_output],
+    )
+
+    pdf_btn.click(
+        fn=generate_pdf, inputs=[result_state], outputs=[pdf_file_output],
+    ).then(
+        fn=lambda: gr.File(visible=True), outputs=[pdf_file_output],
+    )
+
+    chat_send_btn.click(
+        fn=handle_chat, inputs=[chat_input, chatbot, result_state], outputs=[chatbot, chat_input],
+    )
+    chat_input.submit(
+        fn=handle_chat, inputs=[chat_input, chatbot, result_state], outputs=[chatbot, chat_input],
+    )
+    for btn, question in zip(example_btns, EXAMPLE_QUESTIONS):
+        btn.click(fn=lambda q=question: q, outputs=[chat_input]).then(
+            fn=handle_chat, inputs=[chat_input, chatbot, result_state], outputs=[chatbot, chat_input],
+        )
+
+    demo.load(fn=lambda: gr.File(visible=False), outputs=[pdf_file_output])
+
 
 
 if __name__ == "__main__":
@@ -2289,4 +1136,6 @@ if __name__ == "__main__":
         server_name="0.0.0.0",
         server_port=int(port) if port else 7862,
         share=port is None,
+        css=CUSTOM_CSS,
+        head=SCENE_HEAD,
     )

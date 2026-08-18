@@ -55,9 +55,30 @@ def pitch_label_kr(label: str) -> str:
     return PITCH_LABEL_KR.get(label, label)
 
 
+_PLAYER_NAMES: dict[int, str] | None = None
+
+
+def _player_name_lookup() -> dict[int, str]:
+    """data/processed/player_names.csv를 한 번만 읽어 캐시한다.
+
+    Statcast raw의 player_name은 투수 이름만 담아서 타자 이름을 여기서 따로 만든다
+    (data/player_names.py 참고). 파일이 없으면 빈 표를 돌려주고 호출부가 ID 폴백을 쓴다.
+    """
+    global _PLAYER_NAMES
+    if _PLAYER_NAMES is None:
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "data", "processed", "player_names.csv")
+        try:
+            table = pd.read_csv(path)
+            _PLAYER_NAMES = dict(zip(table["player_id"].astype(int), table["player_name"]))
+        except (FileNotFoundError, KeyError, ValueError):
+            _PLAYER_NAMES = {}
+    return _PLAYER_NAMES
+
+
 def get_batter_display(batter_id: int) -> str:
-    """batter_matchup_profile에는 선수 이름 컬럼이 없어 항상 'Batter ID {id}' 형태로 표시한다."""
-    return f"Batter ID {batter_id}"
+    """타자 표시 이름. 룩업에 없으면 'Batter ID {id}'로 떨어진다."""
+    return _player_name_lookup().get(int(batter_id), f"Batter ID {batter_id}")
 
 
 # 최근 5구 자동 생성 시 구종별로 사용하는 안전한 구속(mph)/무브먼트(ft) 기본값.
@@ -169,7 +190,14 @@ class ScoutingService:
         if request.mode not in ("pitcher", "batter"):
             raise ValueError(f"알 수 없는 mode: {request.mode!r} (pitcher 또는 batter만 지원)")
 
-        full_proba = self.prediction_service.predict_full_proba(request.context, request.recent_pitches)
+        # LightGBM 백엔드는 투수/타자 prior를 조회해 피처로 쓴다. 두 키는 CONTEXT_COLS에
+        # 없어 모델 피처가 되지 않고 조회 키로만 쓰인다. 안 넘기면 조용히 리그 평균으로
+        # 떨어지는데, prior가 모델 gain의 81%라 사실상 개선분이 전부 사라진다.
+        model_context = {
+            **request.context, "pitcher": request.pitcher_id, "batter": request.batter_id,
+        }
+
+        full_proba = self.prediction_service.predict_full_proba(model_context, request.recent_pitches)
         interpretation = self._interpret_user_comment(request.user_comment)
 
         # 모델의 원 예측 확률만으로는 pitcher_id/batter_id/카운트 성향이 충분히 반영되지 않아
@@ -186,7 +214,7 @@ class ScoutingService:
                 request.pitcher_id, request.context, full_proba, interpretation
             )
         top3 = sorted(composite_scores.items(), key=lambda kv: kv[1], reverse=True)[:3]
-        model_top3 = self.prediction_service.predict_top_k(request.context, request.recent_pitches, k=3)
+        model_top3 = self.prediction_service.predict_top_k(model_context, request.recent_pitches, k=3)
 
         result = {
             "predicted_top3_pitches": [{"pitch_label": label, "probability": prob} for label, prob in top3],
@@ -690,9 +718,14 @@ class ScoutingService:
         self, pitcher_id: int, context: dict, full_proba: dict[str, float], interpretation: dict,
     ) -> tuple[dict[str, float], dict, dict]:
         """타자 모드 예측 점수. 목적이 '상대 투수가 실제로 던질 가능성이 높은 구종을 맞히는 것'
-        이므로, 모델 예측확률(35%)보다 카운트별 실제 구사 성향(40%)과 투수 전체 구사 비율
+        이므로, 모델 예측확률(25%)보다 카운트별 실제 구사 성향(50%)과 투수 전체 구사 비율
         (25%, 카운트 표본이 부족할 때의 대체값, 2025 표본 부족 시 멀티시즌으로 보완)에 더 큰
-        비중을 둔다. 투수가 카운트/주자/점수차에 따라 실제로 구종을 바꾸는 경향은
+        비중을 둔다.
+
+        이 가중치는 test 4,000구에서 측정했다(docs/PERFORMANCE.md). 재랭킹 top1/top3는
+        0.4435/0.8692로 모델 단독(0.4392/0.8552)보다 높지만, 이득의 대부분은 가중 혼합이
+        아니라 '이 투수가 실제로 던지는 구종으로 후보를 제한'하는 데서 나온다
+        (후보 제한만 적용해도 0.4412/0.8675). 혼합 자체의 기여는 표본오차 안이다. 투수가 카운트/주자/점수차에 따라 실제로 구종을 바꾸는 경향은
         _context_adjustment_factor(투수 모드와 동일 로직 - 상대는 결국 투수이므로 행동 패턴은
         같다)로 반영해, 같은 투수라도 카운트/상황이 바뀌면 예상 구종이 달라지게 한다. 세 번째
         반환값은 구종별 점수 구성요소(투수 모드와 동일한 키 체계, 타자 모드 점수식에는 없는

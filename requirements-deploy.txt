@@ -1,14 +1,18 @@
 # Render 무료 티어(512MB RAM) 배포용 의존성.
 # 로컬 개발용 requirements.txt에서 런타임에 쓰이지 않는 무거운 패키지를 제외했다:
-#   - tensorflow/keras: 딥러닝 모델은 load_deep_model=True일 때만 지연 import되는데
-#     프로덕션 추론 경로는 RandomForest만 쓴다(ADR-0001).
+#   - tensorflow/keras: 추론 경로는 LightGBM + GRU 앙상블인데 둘 다 TF가 필요 없다.
+#     LightGBM은 자체 런타임이고, GRU는 학습만 Keras로 하고 가중치를 npz로 받아
+#     models/seq_infer.py의 numpy 순전파로 추론한다(models/seq_model_weights.npz, 61KB).
+#     구형 deep_next_pitch_model.keras는 load_deep_model=True일 때만 지연 import된다.
 #   - faiss-cpu/sentence-transformers: RAG 검색 결과는 QA 로그 저장에만 쓰이고 답변
 #     생성에는 들어가지 않는다. 빠지면 app.py가 rag_service=None으로 정상 degrade 한다.
 #   - pybaseball: Statcast 원본 수집 스크립트에서만 쓰인다.
-# scikit-learn은 모델을 직렬화한 버전과 반드시 일치해야 한다.
+#   - scikit-learn/joblib: RandomForest 아티팩트를 언피클할 때만 필요했다. 서빙이
+#     LightGBM으로 넘어가면서 추론 경로에서 빠졌다. backend="rf"는 로컬 비교용으로만
+#     남아 있고 joblib을 그 분기 안에서 지연 import 한다.
+# scipy는 여기 없어도 된다. lightgbm이 자기 의존성으로 끌고 온다(narwhals, numpy, scipy).
 gradio==6.19.0
-scikit-learn==1.9.0
-joblib==1.5.3
+lightgbm==4.7.0
 numpy==2.5.0
 pandas==3.0.3
 matplotlib==3.11.0
