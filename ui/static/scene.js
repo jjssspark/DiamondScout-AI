@@ -54,7 +54,6 @@
 
 
   var IMG = {};
-  var previewCell = null;
 
   function reduceMotion() {
     return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -628,9 +627,15 @@
     pad.innerHTML = html;
   }
 
+  /* 코스를 고르면 그 코스로 던지는 장면을 재생한다.
+
+     anim.idx가 존 프리즘과 공 궤적의 목표 칸이다. 예전에는 여기서 쓰이지 않는 변수만
+     바꾸고 anim.idx를 안 건드려서, 버튼을 눌러도 같은 장면을 다시 그릴 뿐이었다.
+     버튼도 눌린 티가 안 났다 - is-on과 aria-pressed가 anim.idx를 보기 때문이다. */
   function pickCell(i) {
-    previewCell = i;
-    render();
+    anim.idx = i;
+    layoutCells();
+    playPitch();
   }
 
   function bindPointerHandlers() {
@@ -721,7 +726,6 @@
     S.bats = payload.bats === "R" ? "R" : "L";
     if (payload.cells && payload.cells.length === 9) { cells = payload.cells.slice(); }
     if (typeof payload.target === "number") { anim.idx = payload.target; }
-    previewCell = null;
     render();
 
     /* 몸쪽/바깥쪽 반전 점검. 통과하면 조용하고, 깨지면 콘솔에 남긴다. */
@@ -731,6 +735,23 @@
         "두 시점에서 같은 쪽에 그려지고 있습니다.", chk);
     }
   }
+
+  /* 첫 화면을 그린다. update()는 분석 실행 결과가 올 때만 불리는데, 그 전까지
+     #coursePad가 빈 div로 남아 버튼이 하나도 없다. 영역은 CSS로 보이니까 사용자
+     눈에는 눌리지 않는 고장난 컨트롤로 보인다.
+
+     데이터는 중립이다(cells가 전부 0이라 히트맵 색이 안 붙는다). 존과 코스 버튼만
+     먼저 나오고, 분석을 돌리면 update()가 같은 자리에 실제 값을 채운다.
+
+     Gradio가 DOM을 붙이기 전에 이 스크립트가 먼저 돌므로 프레임을 넘겨가며 기다린다.
+     무한 재시도는 하지 않는다 - 씬이 없는 페이지에서 rAF 루프가 계속 도는 걸 막는다. */
+  function bootstrap(tries) {
+    if (mount()) { render(); return; }
+    if (tries > 0) {
+      window.requestAnimationFrame(function () { bootstrap(tries - 1); });
+    }
+  }
+  bootstrap(180);
 
   window.dsScene = {
     mount: mount,
