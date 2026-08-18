@@ -10,8 +10,9 @@ DiamondScout_AI의 주요 아키텍처 결정을 기록한다. 형식은 Michael
 | [ADR-0002](#adr-0002--instant-scout-qa--faiss-rag--ollama-로컬-llm-채택) | Instant Scout Q&A — FAISS RAG + Ollama 로컬 LLM 채택 | Accepted |
 | [ADR-0003](#adr-0003--ui-프레임워크로-gradio-채택) | UI 프레임워크로 Gradio 채택 | Accepted |
 | [ADR-0004](#adr-0004--db-로깅-실패-시-핵심-기능-무중단-설계) | DB 로깅 실패 시 핵심 기능 무중단 설계 | Accepted |
-| [ADR-0005](#adr-0005--gradio-sharetrue-임시-터널로-배포) | Gradio `share=True` 임시 터널로 배포 | Superseded (Render 전환) |
+| [ADR-0005](#adr-0005--gradio-sharetrue-임시-터널로-배포) | Gradio `share=True` 임시 터널로 배포 | Superseded by ADR-0007 |
 | [ADR-0006](#adr-0006--다음-구종-예측--피처-보강--lightgbm--gru-앙상블로-전환) | 다음 구종 예측 — 피처 보강 + LightGBM + GRU 앙상블로 전환 | Accepted |
+| [ADR-0007](#adr-0007--공개-데모를-render-무료-티어에-배포) | 공개 데모를 Render 무료 티어에 배포 | Accepted |
 
 ---
 
@@ -117,7 +118,7 @@ DiamondScout_AI의 주요 아키텍처 결정을 기록한다. 형식은 Michael
 - `LLM_BACKEND=groq` + `GROQ_API_KEY` — Groq의 무료 티어 hosted LLM(`llama-3.1-8b-instant`)을 대신 호출. `GROQ_API_KEY`가 비어 있으면 자동으로 규칙 기반 폴백으로 떨어져, 배포 환경에 키를 깜빡 안 넣어도 앱이 죽지 않는다.
 - Ollama와 완전히 동일한 이중 방어 구조(가용성 확인 → 실패 시 규칙 기반 폴백, 반복 답변 감지 시 재시도)를 백엔드에 상관없이 그대로 재사용한다(`_is_llm_available`/`_call_llm`로 일반화).
 
-결과: 로컬 개발자 경험은 전혀 바뀌지 않고(환경변수 미설정 시 기존 Ollama 그대로), 공개 데모만 Groq로 Q&A가 실제로 동작하게 된다. "로컬 LLM만 사용"이라는 원래 결정을 어기는 게 아니라, 그 원칙이 성립하지 않는 배포 환경 하나에만 예외를 뒀다.
+결과: 로컬 개발자 경험은 전혀 바뀌지 않고(환경변수 미설정 시 기존 Ollama 그대로), 공개 데모만 Groq로 Q&A가 실제로 동작하게 된다. (이 결정 직후 배포처가 HF Spaces에서 Render로 바뀌었지만 이유는 그대로다. Render에서도 Ollama를 상시 구동할 수 없다. 배포처 변경은 [ADR-0007](#adr-0007--공개-데모를-render-무료-티어에-배포) 참고.) "로컬 LLM만 사용"이라는 원래 결정을 어기는 게 아니라, 그 원칙이 성립하지 않는 배포 환경 하나에만 예외를 뒀다.
 
 ---
 
@@ -193,11 +194,8 @@ DiamondScout_AI의 주요 아키텍처 결정을 기록한다. 형식은 Michael
 
 ## ADR-0005 · Gradio `share=True` 임시 터널로 배포
 
-> 상태: Superseded (2026-08-05, Render 무료 티어 배포로 전환)
-> 여기 적힌 "단점"이 실제로 문제가 돼서 클라우드 배포로 옮겼다. 처음 고른 곳은
-> Hugging Face Spaces였는데 생성 시점에 402가 떠서 Render로 갔다. 그 과정은
-> TROUBLESHOOTING.md TS-006에 있고, 지금 배포 설정은 `render.yaml`이다.
-> Render 전환 자체를 다루는 ADR은 아직 쓰지 않았다.
+> 상태: Superseded by [ADR-0007](#adr-0007--공개-데모를-render-무료-티어에-배포) (2026-08-05)
+> 여기 적힌 "단점"이 실제로 문제가 돼서 클라우드 배포로 옮겼다.
 
 상태: Superseded
 날짜: 2026-08-05 (기록일. 실제 결정은 코드 기준 그 이전에 이루어짐)
@@ -353,5 +351,113 @@ RandomForest 백엔드 삭제. `backend="rf"`는 로컬 비교용으로 남겼�
   `reliability_2025.png`
 - 재현: `scripts/train_lgbm.py`, `scripts/train_seq.py`, `scripts/eval_ensemble.py`,
   `scripts/eval_serving.py`, `scripts/eval_batter_pitch_gain.py`, `scripts/calibrate_model.py`
+
+
+## ADR-0007 · 공개 데모를 Render 무료 티어에 배포
+
+상태: Accepted
+날짜: 2026-08-05 (결정 시점). 기록은 2026-08-18에 뒤늦게 남긴다.
+대체 대상: ADR-0005
+
+이 문서는 결정 당시가 아니라 나중에 쓴 것이다. 근거는 그날 남긴 TROUBLESHOOTING.md
+TS-006과 저장소에 들어간 설정 파일(`render.yaml`, `.github/workflows/keep-warm.yml`,
+`requirements-deploy.txt`)이다. 그 기록에 없는 내용은 넣지 않았다.
+
+### Context
+
+ADR-0005에서 Gradio `share=True` 터널로 데모를 공개하고 있었다. 거기 단점으로 적어둔
+게 실제로 문제가 됐다. 링크가 최대 1주일이면 만료되고, 로컬에서 `python app.py`가
+돌고 있어야만 살아 있다. 포트폴리오에 올릴 링크로는 못 쓴다.
+
+처음 고른 대체지는 Hugging Face Spaces였다. Gradio 앱이니 표준 선택지라고 봤다.
+번들 207MB를 준비하고 CLI 로그인까지 끝낸 뒤 Space를 만드는 시점에 막혔다.
+
+```
+402 Client Error: Payment Required
+Static Spaces are free for everyone, but hosting Gradio and Docker Spaces on
+free cpu-basic requires a PRO subscription.
+```
+
+무료 cpu-basic에서 Gradio·Docker Space 호스팅이 PRO 전용으로 바뀌어 있었다. 무료로
+남은 건 Static Space뿐인데 이 앱은 서버 사이드 파이썬 추론이 필수라 대체가 안 된다.
+경위는 TS-006에 있다.
+
+### 선택지
+
+1. Hugging Face Spaces PRO 구독 — 준비한 번들을 그대로 쓸 수 있지만 개인 포트폴리오에
+   월 구독을 붙이게 된다
+2. Render 무료 티어 — 512MB RAM / 0.1 CPU, 월 750시간, 카드 불필요, Python 자동 감지.
+   대신 메모리 한도에 맞게 번들을 줄여야 하고 15분 무활동 시 슬립한다
+3. 자체 서버나 VPS — 제약이 없는 대신 비용과 운영 부담이 생긴다
+4. 그냥 `share=True` 유지 — 아무것도 안 바꾸지만 링크가 계속 깨진다
+
+### Decision
+
+Render 무료 티어로 간다. 512MB에 맞추려고 세 가지를 했다.
+
+1. 의존성 축소. `requirements-deploy.txt`에서 tensorflow·pybaseball에 더해
+   faiss-cpu·sentence-transformers도 뺐다. RAG 검색 결과가 `db_save_qa_log()`에만
+   전달되고 `coach_agent.answer()`에는 안 들어가는 것을 코드에서 확인했기 때문이다.
+   빠지면 `app.py`의 기존 try/except가 `rag_service=None`으로 degrade 한다.
+2. 모델 축소. 후보 4개를 추측하지 않고 실제로 학습해서 쟀다
+   (`scripts/compare_model_sizes.py`). 188MB(top-1 39.54%) 대신 38.3MB(38.99%)를
+   골랐다. 4.9배 줄이고 손실이 0.55%p였다.
+3. 포트 바인딩. Render가 주입하는 `PORT` 환경변수를 `app.py`가 읽도록 바꿨다.
+
+LLM 백엔드도 배포 환경에서만 바꿨다. ADR-0002는 Ollama 로컬 LLM을 쓰기로 했는데
+Render에서 Ollama를 상시 구동할 수 없다. `LLM_BACKEND` 환경변수를 두고 로컬은
+`ollama`, 배포는 `groq`(hosted)로 간다. 키는 저장소에 넣지 않고 Render 대시보드에서
+입력한다(`render.yaml`의 `sync: false`).
+
+15분 무활동 슬립은 `.github/workflows/keep-warm.yml`로 완화했다. 10분마다 핑을 보낸다.
+슬립 임계값이 15분이지만 GitHub 크론은 실행이 몇 분 밀릴 수 있어 여유를 뒀다.
+
+### Consequences
+
+좋아진 것
+
+- 링크가 안 죽는다. 로컬 프로세스와 무관하게 항상 접근 가능하다.
+- 메모리 한도라는 강제 제약이 생기면서 두 가지를 측정으로 알게 됐다. RAG가 답변
+  생성에 실제로는 안 쓰인다는 것, 모델을 4.9배 줄여도 손실이 0.55%p뿐이라는 것.
+  제약이 없었으면 둘 다 안 재봤을 것이다.
+- 배포 파이프라인이 저장소 안에 남는다(`render.yaml`). 어떤 환경변수로 무엇이
+  갈리는지 코드에서 읽힌다.
+
+나빠지거나 남은 것
+
+- 첫 요청에 콜드 스타트가 걸린다. 슬립에서 깨는 데 약 80초다. keep-warm으로 줄였지만
+  크론이 밀리면 여전히 걸린다.
+- 배포판과 로컬의 동작이 갈린다. 배포에서는 RAG가 꺼져 있고 LLM이 Groq다. 로컬에서
+  잘 되는 게 배포에서 그렇지 않을 수 있다.
+- 0.1 CPU라 동시 요청에 약하다. 개인 데모라 지금은 문제가 안 된다.
+
+### 이후 변경
+
+- 2026-08-18: 서빙이 LightGBM으로 넘어가면서 위 2번(모델 축소)이 필요 없어졌다.
+  모델이 9.89MB라 축소판을 따로 둘 이유가 사라졌고, `scripts/train_deploy_model.py`와
+  38MB 아티팩트, `PITCH_MODEL_FILE` 환경변수를 전부 지웠다. 자세한 건 ADR-0006.
+- 2026-08-18: 배포 의존성에서 scikit-learn과 joblib도 뺐다. RandomForest를 언피클할
+  때만 필요했다. 같은 날 배포 의존성만 남긴 조건에서 다시 재보니 `app.py` 전체
+  최대 메모리가 349MB였다(512MB 한도).
+
+### 미해결
+
+2026-08-18 기준, main에 머지해도 Render가 재배포되지 않는다. 사이트는 HTTP 200으로
+살아 있고 keep-warm도 성공하지만, `/config`의 첫 컴포넌트가 구 위저드 UI의 마크다운
+그대로다. 머지 후 140분이 지나도 바뀌지 않았으므로 빌드 지연은 아니다.
+
+저장소만으로는 원인을 확정할 수 없다. Render 대시보드에서 Auto-Deploy 설정, 서비스가
+보는 브랜치, 이 서비스가 `render.yaml` Blueprint로 만들어진 것인지 대시보드에서 직접
+만든 것인지, 빌드 로그를 확인해야 한다. 대시보드에서 직접 만든 서비스라면 `render.yaml`
+수정이 반영되지 않으며, 거기에는 지금 코드가 읽지 않는 `PITCH_MODEL_FILE`이 남아
+있을 것이다.
+
+### 근거 자료
+
+- `TROUBLESHOOTING.md` TS-006 — 402 에러 원문, 실패한 시도, 모델 축소 후보 4개 실측표
+- `render.yaml` — 빌드·시작 명령, 환경변수
+- `.github/workflows/keep-warm.yml` — 슬립 완화
+- `requirements-deploy.txt` — 무엇을 왜 뺐는지 주석
+- `docs/PERFORMANCE.md`의 "배포 구성" 절 — 아티팩트 목록과 메모리 실측
 
 ---
