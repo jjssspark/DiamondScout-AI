@@ -249,7 +249,12 @@ CUSTOM_CSS = """
 .ds-steprow { gap: 8px !important; align-items: center !important; flex-wrap: wrap !important; }
 
 /* 단계 표시줄. 한 화면에 다 펼치는 대신 세 단계로 나눴고, 지금 어디인지 항상 보여야 한다. */
-.ds-stepbar { margin: 0 0 14px !important; }
+.ds-stepbar { margin: 0 !important; }
+
+/* Gradio는 HTML 블록마다 기본 패딩을 붙인다. 그게 단계 표시줄과 씬 사이에 빈 띠를
+   만들어서, 결과 단계를 열면 위쪽이 80px쯤 비어 보였다. 우리 블록에서만 걷어낸다. */
+.html-container:has(> .prose > .ds-stepbar),
+.html-container:has(> .prose > .ds-scene) { padding: 0 !important; }
 .ds-stepbar__list {
   display: flex !important; gap: 8px !important; list-style: none !important;
   margin: 0 !important; padding: 0 !important; flex-wrap: wrap !important;
@@ -283,6 +288,8 @@ CUSTOM_CSS = """
   max-width: 720px !important; margin: 14px auto 0 !important;
 }
 .ds-stepnav .ds-btn { min-width: 128px !important; }
+/* 끝 단계에서는 비활성이다. 자리는 그대로 두고 누를 수 없다는 것만 보인다. */
+.ds-stepnav .ds-btn:disabled { opacity: 0.35 !important; cursor: not-allowed !important; }
 
 @media (max-width: 720px) {
   .ds-stepdot { padding: 7px 12px !important; font-size: 15px !important; }

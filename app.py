@@ -1054,8 +1054,11 @@ with gr.Blocks(title="DiamondScout AI") as demo:
                 result_html = gr.HTML(RESULT_EMPTY_HTML)
 
     with gr.Row(elem_classes=["ds-stepnav"]):
-        prev_btn = gr.Button("이전", elem_classes=["ds-btn", "ds-btn--ghost"], visible=False)
-        next_btn = gr.Button("다음", elem_classes=["ds-btn", "ds-btn--primary"], visible=True)
+        # 숨기지 않고 비활성으로 둔다. visible을 토글하면 Gradio가 컴포넌트를 다시
+        # 동기화할 때 step_state와 어긋나 엉뚱한 버튼이 보이는 일이 있었다. 비활성은
+        # 어긋나도 자리가 안 흔들리고, clamp_step이 범위를 막아 눌려도 해가 없다.
+        prev_btn = gr.Button("이전", elem_classes=["ds-btn", "ds-btn--ghost"], interactive=False)
+        next_btn = gr.Button("다음", elem_classes=["ds-btn", "ds-btn--primary"], interactive=True)
 
     with gr.Accordion("코칭 리포트", open=False, elem_classes=["ds-report-accordion"]):
         report_md = gr.Markdown(elem_classes=["ds-report-md"])
@@ -1135,8 +1138,8 @@ with gr.Blocks(title="DiamondScout AI") as demo:
             gr.update(visible=flags[0]),
             gr.update(visible=flags[1]),
             gr.update(visible=flags[2]),
-            gr.update(visible=target > 1),
-            gr.update(visible=target < len(STEP_LABELS)),
+            gr.update(interactive=target > 1),
+            gr.update(interactive=target < len(STEP_LABELS)),
         )
 
     next_btn.click(
