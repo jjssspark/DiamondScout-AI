@@ -520,6 +520,7 @@
   }
 
   /* ── 프레임 ───────────────────────────────────────────────────── */
+  var resizeBound = false;
   var anim = { raf: 0, start: 0, dur: 840, idx: 0, code: "FF" };
 
   function drawBallAt(t, spin, target) {
@@ -704,15 +705,23 @@
   /* Gradio는 head= 스크립트를 앱 렌더 이전에 실행한다. 그래서 캔버스를 잡는 일과
      리스너 바인딩을 여기로 미룬다. 캔버스가 아직 없으면 다음 프레임에 다시 본다. */
   function mount() {
-    if (mounted) { return true; }
-    cv = $("sceneCanvas");
-    if (!cv || !$("coursePad") || !$("sceneCells")) { return false; }
+    var canvas = $("sceneCanvas");
+    if (!canvas || !$("coursePad") || !$("sceneCells")) { return false; }
+    /* mounted 플래그만 보고 빠져나가면 안 된다. Gradio가 이 블록을 다시 렌더하면
+       canvas 엘리먼트가 통째로 교체되는데, 그러면 엔진은 DOM에서 떨어져 나간 옛
+       canvas에 계속 그린다. 코스 패드는 그릴 때마다 새로 찾으니 멀쩡하고 그림만
+       안 나오는, 원인을 짐작하기 어려운 상태가 된다. 실제로 분석 실행 직후 이렇게 됐다. */
+    if (mounted && cv === canvas) { return true; }
+    cv = canvas;
     ctx = cv.getContext("2d");
     mounted = true;
     sizeCanvas();
     bindPointerHandlers();
     loadAssets();
-    window.addEventListener("resize", function () { sizeCanvas(); renderScene(1); });
+    if (!resizeBound) {
+      resizeBound = true;
+      window.addEventListener("resize", function () { sizeCanvas(); renderScene(1); });
+    }
     return true;
   }
 
