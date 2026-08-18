@@ -420,4 +420,8 @@ body {
 .ds-lf-title { font-family: 'Teko', sans-serif; font-size: 21px; font-weight: 800; color: #c8102e; margin-bottom: 8px; }
 .ds-lf-desc { font-size: 15px; color: #4b463c; line-height: 1.5; }
 .ds-landing-start { display: block !important; margin: 8px auto 30px !important; min-width: 220px; font-size: 19px !important; }
+
+/* 존 씬은 탭보다 먼저 정의된다(탭 안 이벤트 배선이 scene_payload를 참조하기 때문).
+   화면에서는 탭 아래에 와야 하므로 순서만 뒤로 민다. */
+.gradio-container .ds-scene-group { order: 99 !important; }
 """
