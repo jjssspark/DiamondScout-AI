@@ -85,13 +85,14 @@ CUSTOM_CSS = """
 /* gr.Row(flex)를 grid로 바꿔 3:5:4 비율을 직접 고정한다. scale= 값과 같은 비율이다. */
 .ds-console {
     display: grid !important;
-    grid-template-columns: 3fr 5fr 4fr;
+    grid-template-columns: 1fr !important;
     gap: 16px !important;
     align-items: start !important;
-    flex-wrap: nowrap !important;
 }
 .ds-console > * { min-width: 0 !important; }
-.ds-col-matchup, .ds-col-zone, .ds-col-result {
+/* 한 번에 한 단계만 보인다. 3열 그리드였을 때는 열마다 다른 폭이 필요했지만
+   지금은 단계 하나가 가운데 한 칸을 쓴다. */
+.ds-stage {
     display: flex !important; flex-direction: column; gap: 14px !important; min-width: 0 !important;
 }
 
@@ -246,6 +247,48 @@ CUSTOM_CSS = """
 .ds-scoreboard .ds-sb-unit { font-size: 14px; color: #e6e1d3; }
 .ds-scoreboard .ds-sb-colon { color: #c8102e; font-size: 22px; font-weight: 800; }
 .ds-steprow { gap: 8px !important; align-items: center !important; flex-wrap: wrap !important; }
+
+/* 단계 표시줄. 한 화면에 다 펼치는 대신 세 단계로 나눴고, 지금 어디인지 항상 보여야 한다. */
+.ds-stepbar { margin: 0 0 14px !important; }
+.ds-stepbar__list {
+  display: flex !important; gap: 8px !important; list-style: none !important;
+  margin: 0 !important; padding: 0 !important; flex-wrap: wrap !important;
+}
+.ds-stepdot {
+  display: flex !important; align-items: center !important; gap: 8px !important;
+  padding: 8px 16px !important; border-radius: 999px !important;
+  border: 1.5px solid rgba(20, 32, 60, 0.14) !important;
+  font-family: 'Teko', 'Pretendard', sans-serif !important;
+  font-size: 17px !important; letter-spacing: 0.04em !important;
+  color: rgba(20, 32, 60, 0.5) !important; background: #ffffff !important;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease !important;
+}
+.ds-stepdot__no {
+  display: inline-flex !important; align-items: center !important; justify-content: center !important;
+  width: 22px !important; height: 22px !important; border-radius: 50% !important;
+  background: rgba(20, 32, 60, 0.1) !important; color: inherit !important;
+  font-size: 14px !important; font-weight: 700 !important;
+}
+.ds-stepdot--now {
+  border-color: #c8102e !important; background: #c8102e !important; color: #ffffff !important;
+}
+.ds-stepdot--now .ds-stepdot__no { background: rgba(255, 255, 255, 0.24) !important; }
+.ds-stepdot--done { border-color: rgba(200, 16, 46, 0.4) !important; color: #14203c !important; }
+.ds-stepdot--done .ds-stepdot__no { background: rgba(200, 16, 46, 0.16) !important; }
+
+/* 한 번에 한 단계만 보이므로 가운데 정렬해 읽는 폭을 좁힌다. */
+.ds-stage { max-width: 720px !important; margin: 0 auto !important; }
+.ds-stepnav {
+  gap: 10px !important; justify-content: flex-end !important;
+  max-width: 720px !important; margin: 14px auto 0 !important;
+}
+.ds-stepnav .ds-btn { min-width: 128px !important; }
+
+@media (max-width: 720px) {
+  .ds-stepdot { padding: 7px 12px !important; font-size: 15px !important; }
+  .ds-stepdot__label { display: none !important; }
+  .ds-stepnav .ds-btn { min-width: 0 !important; flex: 1 1 0 !important; }
+}
 .ds-step-btn { min-width: 44px !important; padding: 0 12px !important; flex: 0 1 auto !important; }
 
 /* ===== 세그먼트 컨트롤 (gr.Radio를 목업의 세그먼트 버튼처럼) ===== */
@@ -415,20 +458,9 @@ body {
 }
 
 /* ===== 반응형 브레이크포인트 ===== */
-/* 태블릿 — 2열, 결과는 아래 전폭 */
-/* 경계가 1023px일 때 1024px가 3열이 되는 가장 좁은 폭이었는데, 3fr 5fr 4fr에서
-   매치업 열이 232px까지 눌려 "포심 패스트볼(FF)"이 세 줄로 쪼개졌다. 라벨이 한 줄로
-   들어가려면 매치업 열에 약 280px이 필요하고, 그러려면 뷰포트가 1216px 이상이어야 한다. */
-@media (max-width: 1215px) {
-    .ds-console { grid-template-columns: 1fr 1fr !important; }
-    .ds-col-result { grid-column: 1 / -1; }
-}
-/* 모바일 — 1열, 존은 상단 고정 */
+/* 모바일 */
+/* 3열이던 시절의 태블릿 분기(1215px)는 없앴다. 단계가 하나씩 보이므로 열을 나눌 게 없다. */
 @media (max-width: 767px) {
-    .ds-console { grid-template-columns: 1fr !important; }
-    .ds-col-zone   { order: 1; position: sticky; top: 0; z-index: 20; background: #f4f2ec; }
-    .ds-col-result { order: 2; grid-column: auto; }
-    .ds-col-matchup { order: 3; }
     .ds-card { padding: 14px 14px !important; }
     /* 터치 타겟 44px 확보 */
     .ds-lamp { width: 28px; height: 28px; margin-right: 10px; }

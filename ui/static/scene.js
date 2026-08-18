@@ -716,10 +716,15 @@
     return true;
   }
 
-  function update(payload) {
+  function update(payload, tries) {
     if (!payload) { return; }
     if (!mount()) {
-      window.requestAnimationFrame(function () { update(payload); });
+      /* 씬이 아직 DOM에 없다. 결과 단계로 넘어오기 전이면 영영 안 나타날 수도 있으므로
+         무한히 기다리지 않는다. 단계가 바뀔 때 refresh()가 다시 부른다. */
+      var left = typeof tries === "number" ? tries : 60;
+      if (left > 0) {
+        window.requestAnimationFrame(function () { update(payload, left - 1); });
+      }
       return;
     }
     S.mode = payload.mode === "batter" ? "batter" : "pitcher";
@@ -736,26 +741,33 @@
     }
   }
 
-  /* 첫 화면을 그린다. update()는 분석 실행 결과가 올 때만 불리는데, 그 전까지
-     #coursePad가 빈 div로 남아 버튼이 하나도 없다. 영역은 CSS로 보이니까 사용자
-     눈에는 눌리지 않는 고장난 컨트롤로 보인다.
+  /* 씬이 화면에 나타났을 때 붙잡아 한 번 그린다.
 
-     데이터는 중립이다(cells가 전부 0이라 히트맵 색이 안 붙는다). 존과 코스 버튼만
-     먼저 나오고, 분석을 돌리면 update()가 같은 자리에 실제 값을 채운다.
+     두 가지를 같이 해결한다.
+     - 분석 실행 전에도 존과 코스 버튼이 보여야 한다. layoutCells()는 render() 안에
+       있고 render()는 update()에서만 불리는데, update()는 분석 결과가 올 때만 온다.
+       그대로 두면 #coursePad가 빈 div로 남아 눌리지 않는 컨트롤이 된다.
+     - 단계 흐름에서 결과 단계는 처음에 DOM에 없다. 로드 시점에는 잡을 대상이 없고,
+       그 단계로 넘어온 뒤에야 잡을 수 있다.
 
-     Gradio가 DOM을 붙이기 전에 이 스크립트가 먼저 돌므로 프레임을 넘겨가며 기다린다.
-     무한 재시도는 하지 않는다 - 씬이 없는 페이지에서 rAF 루프가 계속 도는 걸 막는다. */
-  function bootstrap(tries) {
+     데이터는 중립이다(cells가 전부 0이라 히트맵 색이 안 붙는다). 분석을 돌리면
+     update()가 같은 자리에 실제 값을 채운다.
+
+     Gradio가 DOM을 붙이는 시점이 이 호출보다 늦을 수 있어 프레임을 넘겨가며 다시 본다.
+     무한 재시도는 하지 않는다 - 씬이 없는 화면에서 rAF 루프가 계속 도는 걸 막는다. */
+  function refresh(tries) {
     if (mount()) { render(); return; }
     if (tries > 0) {
-      window.requestAnimationFrame(function () { bootstrap(tries - 1); });
+      window.requestAnimationFrame(function () { refresh(tries - 1); });
     }
   }
-  bootstrap(180);
+  refresh(60);
 
   window.dsScene = {
     mount: mount,
     update: update,
+    /* 단계 이동처럼 씬이 새로 화면에 붙는 시점에 부른다. mount()는 여러 번 불러도 안전하다. */
+    refresh: function () { refresh(60); },
     play: function () { if (mounted) { playPitch(); } },
     selfCheck: function () {
       return {
