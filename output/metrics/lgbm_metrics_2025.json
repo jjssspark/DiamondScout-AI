@@ -1,7 +1,7 @@
 {
   "n_features": 88,
   "best_iteration": 89,
-  "train_seconds": 140.59385775000192,
+  "train_seconds": 42.353264790999674,
   "model_size_mb": 9.888184547424316,
   "validation": {
     "top1_accuracy": 0.4401937799308881,

@@ -241,3 +241,105 @@ def test_add_temporal_features_does_not_mutate_input():
     add_temporal_features(df)
 
     pd.testing.assert_frame_equal(df, before)
+
+
+# --- 타자 x 구종 매치업 ---------------------------------------------------
+
+
+def _bp_train_df():
+    """게임 1,2가 train. 게임 9는 val/test라 집계에 들어오면 안 된다."""
+    return pd.DataFrame({
+        "pitcher": [100] * 4,
+        "batter": [10, 10, 11, 11],
+        "game_pk": [1, 1, 2, 2],
+        "balls": [0, 0, 0, 0],
+        "strikes": [0, 0, 0, 0],
+        "target_pitch_label_id": [0, 1, 0, 1],
+    })
+
+
+def _bp_events():
+    """라벨0의 리그 평균은 (0+2)/(200+2) = 0.0099로 낮게 잡히도록 짰다.
+    타자 10은 라벨0을 200구 보고 헛스윙 0 (자기 값 0.0, 표본 큼).
+    타자 11은 라벨0을 2구 보고 둘 다 헛스윙 (자기 값 1.0, 표본 작음).
+    게임 9 행은 train 밖이라 집계에 들어오면 안 된다."""
+    return pd.DataFrame({
+        "batter":         [10,  10,  11, 11,  10],
+        "game_pk":        [1,   1,   2,  2,   9],
+        "pitch_label_id": [0,   1,   0,  1,   2],
+        "n":              [200, 100, 2,  100, 500],
+        "whiff_n":        [0,   0,   2,  0,   500],
+        "hardhit_n":      [0,   0,   0,  0,   0],
+        "xbh_n":          [0,   0,   0,  0,   0],
+    })
+
+
+def test_batter_pitch_matchup_has_one_column_per_label_and_metric():
+    from data.feature_builders import batter_pitch_feature_cols, build_batter_pitch_matchup
+
+    out = build_batter_pitch_matchup(_bp_train_df(), _bp_events(), LABEL_IDS)
+    expected = batter_pitch_feature_cols(LABEL_IDS)
+
+    assert len(expected) == 3 * len(LABEL_IDS)
+    assert list(out.columns) == ["batter"] + expected
+
+
+def test_batter_pitch_matchup_ignores_games_outside_train():
+    """게임 9(train 밖)에서 타자 10이 라벨2를 500구 전부 헛스윙했다.
+    반영되면 batter_whiff_2가 1.0 근처로 튄다."""
+    from data.feature_builders import build_batter_pitch_matchup
+
+    out = build_batter_pitch_matchup(_bp_train_df(), _bp_events(), LABEL_IDS)
+    row = out[out["batter"] == 10].iloc[0]
+
+    # train 안에서는 아무도 라벨2를 만난 적이 없다 -> 리그 평균 0.0
+    assert row["batter_whiff_2"] == 0.0
+
+
+def test_batter_pitch_matchup_shrinks_small_samples_more():
+    """표본이 작을수록 자기 값에서 리그 평균 쪽으로 더 멀리 당겨져야 한다.
+
+    수축이 없으면 2구 중 2구 헛스윙한 타자가 batter_whiff_0 = 1.0으로 잡히고,
+    모델은 그 잡음을 "이 타자는 이 구종에 100% 헛스윙한다"로 학습한다.
+    """
+    from data.feature_builders import BATTER_PITCH_SHRINKAGE_K, build_batter_pitch_matchup
+
+    out = build_batter_pitch_matchup(_bp_train_df(), _bp_events(), LABEL_IDS)
+    big = out[out["batter"] == 10].iloc[0]["batter_whiff_0"]     # 자기 값 0.0, n=200
+    small = out[out["batter"] == 11].iloc[0]["batter_whiff_0"]   # 자기 값 1.0, n=2
+
+    assert abs(small - 1.0) > abs(big - 0.0), "표본이 작은 쪽이 더 많이 당겨져야 한다"
+    assert small < 0.2, f"2구짜리 표본이 {small:.3f}로 남았다 - 수축이 약하다"
+    assert BATTER_PITCH_SHRINKAGE_K > PRIOR_SHRINKAGE_K
+
+
+def test_batter_pitch_matchup_falls_back_to_league_rate_for_unseen_pitch():
+    """train에서 그 구종을 만난 적 없는 타자는 리그 평균으로 채운다. NaN이면 모델이 죽는다."""
+    from data.feature_builders import build_batter_pitch_matchup
+
+    events = _bp_events()
+    # 타자 12를 추가하되 라벨0만 보게 한다
+    train = pd.concat([_bp_train_df(), pd.DataFrame({
+        "pitcher": [100], "batter": [12], "game_pk": [1],
+        "balls": [0], "strikes": [0], "target_pitch_label_id": [0],
+    })], ignore_index=True)
+    events = pd.concat([events, pd.DataFrame({
+        "batter": [12], "game_pk": [1], "pitch_label_id": [0],
+        "n": [10], "whiff_n": [5], "hardhit_n": [0], "xbh_n": [0],
+    })], ignore_index=True)
+
+    out = build_batter_pitch_matchup(train, events, LABEL_IDS)
+    row = out[out["batter"] == 12].iloc[0]
+
+    league_whiff_1 = 0.0  # train에서 라벨1은 200구 중 헛스윙 0
+    assert row["batter_whiff_1"] == pytest.approx(league_whiff_1)
+
+
+def test_batter_pitch_matchup_has_no_nan_and_covers_every_train_batter():
+    from data.feature_builders import build_batter_pitch_matchup
+
+    train = _bp_train_df()
+    out = build_batter_pitch_matchup(train, _bp_events(), LABEL_IDS)
+
+    assert set(out["batter"]) == set(train["batter"].unique())
+    assert not out.isna().any().any()

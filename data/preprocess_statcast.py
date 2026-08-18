@@ -206,6 +206,30 @@ def build_zone_risk_profile(df: pd.DataFrame) -> pd.DataFrame:
     return g.sort_values(["pitcher", "pitch_label", "zone_cell"]).reset_index(drop=True)
 
 
+def build_batter_matchup_events(df: pd.DataFrame) -> pd.DataFrame:
+    """타자 x 구종 반응을 **경기 단위 카운트**로 남긴다.
+
+    batter_matchup_profile은 이미 비율로 집계돼 있어서 나중에 train 구간만 잘라낼 수
+    없다. split이 game_pk 기준이므로 game_pk를 남겨 두면 소비하는 쪽에서 train 경기만
+    골라 집계할 수 있다 - 그래야 타자 반응률에 미래 경기가 섞이지 않는다.
+
+    비율이 아니라 분자·분모를 그대로 남기는 이유: 여러 경기를 합칠 때 비율의 평균은
+    표본 크기를 무시해서 1구만 본 경기와 20구 본 경기를 같은 무게로 센다.
+    """
+    return (
+        df.groupby(["batter", "game_pk", "pitch_label_id"])
+        .agg(
+            n=("pitch_label_id", "size"),
+            whiff_n=("is_whiff", "sum"),
+            hardhit_n=("hard_hit", "sum"),
+            xbh_n=("is_extra_base_hit", "sum"),
+        )
+        .reset_index()
+        .sort_values(["batter", "game_pk", "pitch_label_id"])
+        .reset_index(drop=True)
+    )
+
+
 def _load_player_names(processed_dir: str) -> pd.DataFrame | None:
     """이름 표가 아직 없으면 None. 그러면 프로필에 player_name 컬럼이 안 붙고
     화면은 기존대로 'Batter ID {id}' 폴백을 쓴다. 전처리를 막지는 않는다."""
@@ -252,6 +276,7 @@ def process_year(root: str, year: int) -> None:
         f"count_pitch_profile_{year}.csv": build_count_pitch_profile(df),
         f"zone_risk_profile_{year}.csv": build_zone_risk_profile(df),
         f"batter_matchup_profile_{year}.csv": build_batter_matchup_profile(df, _load_player_names(processed_dir)),
+        f"batter_matchup_events_{year}.csv": build_batter_matchup_events(df),
     }
     for filename, out_df in outputs.items():
         path = os.path.join(processed_dir, filename)

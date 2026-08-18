@@ -55,6 +55,46 @@ GRU 단독은 39.0%로 LightGBM보다 4.7%p 낮다. 그런데도 섞으면 오�
 
 관측 불가 세 피처(`pitcher_pitch_count_game`, `times_through_order`, `prev_pitch_outcome_enc`)의 gain 중요도 합이 0.89%라 손실이 0.46%p에 그친다. `pitch_of_atbat`은 `balls+strikes+1`로 근사하며 실제값과 84.9% 일치한다(파울이 카운트를 올리지 않아 어긋난다).
 
+### 타자 x 구종 피처 (재봤지만 안 씀)
+
+인계 문서에서 가장 기대했던 후보다. 지금 타자 피처는 whiff_rate 같은 값을 전 구종
+평균 4개로 눌러놔서 "이 타자가 슬라이더에 약하다"는 정보가 사라진다. 그래서 구종
+축을 살려서 다시 만들고 측정했다.
+
+만든 방식:
+
+- 전처리에 `batter_matchup_events_{year}.csv`를 추가했다. (타자, 경기, 구종) 단위
+  카운트다. split이 game_pk 기준이라 이렇게 두면 train 경기만 잘라서 집계할 수 있다.
+  기존 `batter_matchup_profile`은 연도 전체로 비율이 이미 계산돼 있어서 train만
+  떼어낼 방법이 없다.
+- 표본이 적은 칸은 그 구종의 리그 평균 쪽으로 당겼다. `(분자 + 50*리그평균) / (분모 + 50)`.
+  안 그러면 2구 중 2구 헛스윙한 칸이 1.0으로 잡히고 모델이 그 잡음을 배운다.
+- whiff, hard-hit, 장타 3개 지표 x 구종 11개 = 33열.
+
+결과다. 같은 parquet에 같은 하이퍼파라미터로 컬럼만 넣고 뺐다.
+
+| 구성 | 피처 수 | val top-1 | test top-1 | test top-3 | base 대비 | McNemar |
+|---|---|---|---|---|---|---|
+| base | 88 | 44.02% | 43.71% | 85.73% | — | — |
+| whiff만 11열 | 99 | 44.00% | 43.60% | 85.68% | -0.11%p | p=0.21 |
+| 전체 33열 | 121 | 43.96% | 43.50% | 85.67% | -0.21%p | p=0.023 |
+
+읽는 법:
+
+- 33열은 gain의 5%를 가져간다. 모델이 무시한 게 아니다. 쓰긴 쓰는데 일반화가 안 된다.
+- 열이 많아서 희석된 것도 아니다. whiff만 11열로 줄여도 이득이 0이다.
+- 이 지표들이 말하는 건 "타자가 그 구종을 얼마나 못 치나"다. 우리가 맞히려는 건
+  "투수가 다음에 뭘 던지나"다. 둘이 생각만큼 이어지지 않는다고 본다.
+
+파이프라인 기본값은 꺼 둔 상태다. 재현하려면 이렇게 켠다.
+
+```bash
+./venv/bin/python data/build_enriched_dataset.py --year 2025 --with-batter-pitch
+./venv/bin/python scripts/eval_batter_pitch_gain.py
+```
+
+- 출처: `output/metrics/batter_pitch_gain_2025.json`
+
 ### 피처 중요도
 
 | 그룹 | gain 비중 |

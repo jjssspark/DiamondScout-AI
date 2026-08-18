@@ -85,7 +85,7 @@ class PriorLookup:
             os.path.join(prior_dir, "count_prior.csv"),
             ["pitcher", "balls", "strikes"], "count_prior",
         )
-        self.batter, self.batter_mean = self._read_batter(
+        self.batter, self.batter_mean, self.batter_cols = self._read_batter(
             os.path.join(prior_dir, "batter_features.csv")
         )
         with open(os.path.join(prior_dir, "temporal_defaults.json"), "r", encoding="utf-8") as f:
@@ -103,13 +103,20 @@ class PriorLookup:
         keys = table[key_cols].astype(int).itertuples(index=False, name=None)
         return dict(zip(keys, table[value_cols].to_numpy().tolist()))
 
-    def _read_batter(self, path: str) -> tuple[dict, list[float]]:
+    def _read_batter(self, path: str) -> tuple[dict, list[float], list[str]]:
+        """컬럼 목록은 파일 헤더에서 읽는다.
+
+        타자 x 구종 피처가 붙으면서 컬럼이 4개에서 수십 개로 늘었다. 여기에 목록을
+        하드코딩해 두면 학습 쪽에 컬럼이 추가될 때마다 같이 고쳐야 하고, 안 고치면
+        모델이 학습 때와 다른 입력을 받는다 - 예외 없이 정확도만 떨어진다.
+        """
         if not os.path.exists(path):
-            return {}, [0.0] * len(BATTER_FEATURE_COLS)
+            return {}, [0.0] * len(BATTER_FEATURE_COLS), list(BATTER_FEATURE_COLS)
         table = pd.read_csv(path)
-        values = table[BATTER_FEATURE_COLS].to_numpy()
+        cols = [c for c in table.columns if c != "batter"]
+        values = table[cols].to_numpy()
         lookup = dict(zip(table["batter"].astype(int), values.tolist()))
-        return lookup, values.mean(axis=0).tolist()
+        return lookup, values.mean(axis=0).tolist(), cols
 
     def features(self, pitcher_id, batter_id, balls: int, strikes: int) -> dict[str, float]:
         """조회에 실패해도 예외를 내지 않는다. 처음 보는 투수/타자여도 예측은 나와야 한다."""
@@ -121,7 +128,7 @@ class PriorLookup:
 
         out = {f"pitcher_prior_{i}": v for i, v in zip(self.label_ids, pitcher)}
         out.update({f"count_prior_{i}": v for i, v in zip(self.label_ids, count)})
-        out.update(dict(zip(BATTER_FEATURE_COLS, batter)))
+        out.update(dict(zip(self.batter_cols, batter)))
         return out
 
 

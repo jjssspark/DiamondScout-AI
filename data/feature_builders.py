@@ -14,6 +14,19 @@ TARGET_COL = "target_pitch_label_id"
 # 적은 카운트는 자기 비율보다 투수 평균을 더 믿는다.
 PRIOR_SHRINKAGE_K = 20
 
+# 타자 x 구종 반응률을 리그 구종별 평균 쪽으로 당기는 강도. 카운트 prior(k=20)보다
+# 크게 잡는다 - whiff/hard-hit은 이항 비율이라 분모가 작을 때 카운트 비율보다 더 튄다.
+# 타자 한 명이 한 구종을 만나는 횟수 중앙값이 수십 구 수준이라, k=50이면 표본이
+# 그보다 적은 셀은 자기 값보다 리그 평균을 더 믿는다.
+BATTER_PITCH_SHRINKAGE_K = 50
+
+# 이벤트 표에서 (분자 컬럼, 피처 접두사)
+BATTER_PITCH_METRICS = [
+    ("whiff_n", "batter_whiff"),
+    ("hardhit_n", "batter_hardhit"),
+    ("xbh_n", "batter_xbh"),
+]
+
 
 def league_prior(train_df: pd.DataFrame, label_ids: list[int]) -> dict[int, float]:
     """train 전체의 구종 분포. 처음 보는 투수/타자를 채우는 데 쓴다."""
@@ -170,3 +183,69 @@ def build_batter_matchup_features(
         )
         .reset_index()
     )
+
+
+def batter_pitch_feature_cols(label_ids: list[int]) -> list[str]:
+    """모델이 기대하는 타자 x 구종 컬럼 이름. 학습·서빙이 같은 순서를 봐야 한다."""
+    return [f"{prefix}_{i}" for _, prefix in BATTER_PITCH_METRICS for i in label_ids]
+
+
+def build_batter_pitch_matchup(
+    train_df: pd.DataFrame,
+    events: pd.DataFrame,
+    label_ids: list[int],
+    k: int = BATTER_PITCH_SHRINKAGE_K,
+) -> pd.DataFrame:
+    """타자 x 구종 반응률을 구종별 컬럼으로 편다.
+
+    기존 build_batter_matchup_features는 whiff_rate 등을 전 구종 평균 스칼라로 눌러서
+    "이 타자가 슬라이더에 약하다"는 신호가 사라진다. 여기서는 구종 축을 살린다.
+
+    events는 (batter, game_pk, pitch_label_id) 카운트 표다. **train 경기만** 집계한다 -
+    비율로 미리 집계된 프로파일을 쓰면 val/test 경기의 반응이 train 피처로 새어 들어간다.
+
+    표본이 적은 셀은 그 구종의 리그 평균 쪽으로 수축시킨다:
+        rate = (분자 + k * 리그평균) / (분모 + k)
+    수축이 없으면 3구 중 1구 헛스윙한 셀이 0.333으로 잡혀 모델이 잡음을 학습한다.
+    """
+    train_games = set(train_df["game_pk"].unique())
+    ev = events[events["game_pk"].isin(train_games)]
+
+    cell = ev.groupby(["batter", "pitch_label_id"])[
+        ["n"] + [num for num, _ in BATTER_PITCH_METRICS]
+    ].sum().reset_index()
+
+    # 구종별 리그 평균. 수축의 목표점이자 그 구종을 한 번도 안 만난 타자의 폴백이다.
+    totals = cell.groupby("pitch_label_id")[
+        ["n"] + [num for num, _ in BATTER_PITCH_METRICS]
+    ].sum()
+    league = {
+        num: {
+            i: (float(totals.loc[i, num]) / float(totals.loc[i, "n"]) if i in totals.index
+                and totals.loc[i, "n"] > 0 else 0.0)
+            for i in label_ids
+        }
+        for num, _ in BATTER_PITCH_METRICS
+    }
+
+    batters = pd.DataFrame({"batter": sorted(train_df["batter"].unique())})
+    out = batters
+    for num, prefix in BATTER_PITCH_METRICS:
+        shrunk = cell.assign(
+            rate=(cell[num] + k * cell["pitch_label_id"].map(league[num]))
+            / (cell["n"] + k)
+        )
+        wide = shrunk.pivot_table(
+            index="batter", columns="pitch_label_id", values="rate", aggfunc="first"
+        )
+        for i in label_ids:
+            if i not in wide.columns:
+                wide[i] = np.nan
+        wide = wide[label_ids]
+        wide.columns = [f"{prefix}_{i}" for i in label_ids]
+        out = out.merge(wide.reset_index(), on="batter", how="left")
+        # 그 구종을 한 번도 안 만난 타자 = 정보 없음. 리그 평균으로 둔다.
+        for i in label_ids:
+            out[f"{prefix}_{i}"] = out[f"{prefix}_{i}"].fillna(league[num][i])
+
+    return out
