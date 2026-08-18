@@ -12,13 +12,10 @@ services/scouting_service.py의 ScoutingService를 사용해 "내가 투수라�
     (이 프로젝트는 venv를 쓰므로 실제로는 ./venv/bin/python app.py 로 실행)
 """
 
-import html
-import json
 import os
 import re
 import textwrap
 from datetime import datetime
-from pathlib import Path
 
 import gradio as gr
 import matplotlib.pyplot as plt
@@ -31,30 +28,23 @@ from services.scouting_service import (
     get_batter_display,
     pitch_label_kr,
 )
-from ui.console import (
-    MAX_BALLS,
-    MAX_OUTS,
-    MAX_STRIKES,
-    cycle_value,
-    render_base_diamond,
-    render_count_lamps,
-    render_player_card,
-    render_scoreboard,
-    toggle_base,
-)
 from ui.result_panel import (
     RISK_LABELS_KR,
     _risk_summary_line,
     render_analysis_status,
     render_hero_recommend_card,
     render_insight_card,
-    render_risk_badges,
-    render_top3_gauges,
+    render_risk_cards,
+    render_top3_cards,
     risk_level,
 )
-from ui.scene import build_scene_payload, render_scene_canvas, scene_engine_js
 from ui.styles import CUSTOM_CSS
-from ui.zone_heatmap import _zone_hand_label
+from ui.trajectory_view import render_batter_hotcold_zone, render_pitcher_hotcold_zone
+from ui.zone_heatmap import (
+    _zone_hand_label,
+    render_batter_zone_board,
+    render_pitcher_zone_board,
+)
 
 # matplotlib 기본 폰트(DejaVu Sans)는 한글 글리프가 없어 히트맵/위치 그래프의 한글 라벨이
 # 깨지므로(빈 네모) macOS 기본 한글 폰트로 지정한다. AppleGothic 단독으로는 í/ó/ñ 같은 라틴
@@ -531,6 +521,10 @@ def run_pitcher_analysis(
     # 좌타/우타, 좌투/우투를 사용자가 직접 고르지 않고 실제 데이터 기반으로 자동 추정한다.
     batter_stand = scouting_service.get_batter_stand(batter_id)
     pitcher_throws = scouting_service.get_pitcher_throws(pitcher_id)
+    matchup_hand_text = (
+        f"🧍 상대 타자 타석 방향: **{_hand_kr(batter_stand)}타({batter_stand})**"
+        f"  ⚾ 내 투구 방향: **{_hand_kr(pitcher_throws)}투({pitcher_throws})** _(데이터 기반 자동 추정)_"
+    )
 
     # 투수 모드: 우리팀 = 투수팀이므로 우리팀 기준 점수차가 곧 모델이 쓰는 "투수팀 기준" score_diff다.
     if our_score is None or opponent_score is None:
@@ -559,15 +553,15 @@ def run_pitcher_analysis(
     result["score_situation_label"] = score_situation_label
     analysis_log_id = db_save_analysis_log("pitcher", pitcher_id, context, recent_pitches, comment or "", result)
 
-    top3_html = _top3_section(result["predicted_top3_pitches"], "던지면 유리한 구종 Top-3 (아웃/약한 타구 유도)")
-    risk_html = render_risk_badges(result["risk_summary"])
+    top3_html = render_top3_cards(result["predicted_top3_pitches"], "던지면 유리한 구종 Top-3 (아웃/약한 타구 유도)")
+    risk_html = render_risk_cards(result["risk_summary"])
 
     pr = result["pitcher_mode_result"]
     recommended_text = f"{pitch_label_kr(pr['recommended_pitch'])} ({pr['recommended_pitch']})"
     avoid_text = f"{pitch_label_kr(pr['avoid_pitch'])} ({pr['avoid_pitch']})" if pr["avoid_pitch"] else "-"
     recommend_card_html = render_hero_recommend_card(
         "추천 구종", recommended_text, "예측 확률·구사 성향·매치업·위험도를 종합한 1순위 선택",
-        "피해야 할 구종", avoid_text, accent="#c8102e",
+        "피해야 할 구종", avoid_text, accent="#1f8a4c",
     )
     batter_weakness_html = render_insight_card("상대 타자 약점 요약", pr["batter_weakness"]["summary"])
     # Top-3 각 구종이 실제로 가장 많이 들어간 zone_cell을 궤적 목적지로 사용(구종별 궤적 표시).
@@ -576,10 +570,9 @@ def run_pitcher_analysis(
          "cell": scouting_service.get_zone_cell_estimate(pitcher_id, item["pitch_label"])}
         for i, item in enumerate(result["predicted_top3_pitches"])
     ]
-    scene_json = json.dumps(build_scene_payload(
-        mode="pitcher", stand=batter_stand, zone_scores=pr["zone_hit_risk_scores"],
-        highlight_cell=pr["best_zone_cell"], metric="HIT_RISK", trajectories=pitcher_trajectories,
-    ))
+    hotcold_html = render_pitcher_zone_board(
+        pr["zone_hit_risk_scores"], pr["best_zone_cell"], pr["recommended_pitch"], batter_stand, pitcher_trajectories,
+    )
 
     meta = {
         "my_label": f"🧑‍⚾ 내 투수: {scouting_service.get_pitcher_name(pitcher_id)} (ID {pitcher_id})",
@@ -593,19 +586,12 @@ def run_pitcher_analysis(
         "score_team_label": "투수팀(우리팀)",
     }
     report_md = build_markdown_report("pitcher", result, meta)
-    matchup_html = render_matchup_column(
-        "pitcher", pitcher_id, batter_id,
-        pitcher_gauges=_pitch_gauges(pr["own_pitch_pattern"]),
-        pitcher_note=pr["own_pitch_pattern"]["summary"],
-        batter_note=pr["batter_weakness"]["summary"],
-    )
-    result_html = _compose_result_html(
-        meta, recommend_card_html, top3_html, risk_html, batter_weakness_html,
-    )
     pitcher_state = {"mode": "pitcher", "result": result, "meta": meta, "analysis_log_id": analysis_log_id}
+    status_html = render_analysis_status(done=True)
 
     return (
-        matchup_html, scene_json, result_html, report_md, pitcher_state, render_analysis_status(done=True),
+        matchup_hand_text, top3_html, risk_html, recommend_card_html, batter_weakness_html,
+        hotcold_html, report_md, pitcher_state, status_html,
     )
 
 
@@ -618,6 +604,10 @@ def run_batter_analysis(
 
     my_stand = scouting_service.get_batter_stand(batter_id)
     opponent_throws = scouting_service.get_pitcher_throws(pitcher_id)
+    matchup_hand_text = (
+        f"🧍 내 타석 방향: **{_hand_kr(my_stand)}타({my_stand})**"
+        f"  ⚾ 상대 투수 투구 방향: **{_hand_kr(opponent_throws)}투({opponent_throws})** _(데이터 기반 자동 추정)_"
+    )
 
     # 타자 모드: 우리팀 = 타자팀. 모델 context의 score_diff는 "투수팀(=상대팀) 기준"이므로 부호를
     # 반전해서 넘긴다. 사용자에게 보여줄 때는 항상 우리팀 기준(user_score_diff)을 쓴다.
@@ -644,23 +634,22 @@ def run_batter_analysis(
     result["score_situation_label"] = score_situation_label
     analysis_log_id = db_save_analysis_log("batter", pitcher_id, context, recent_pitches, comment or "", result)
 
-    top3_html = _top3_section(result["predicted_top3_pitches"], "상대 투수가 던질 가능성이 높은 구종 Top-3")
-    risk_html = render_risk_badges(result["risk_summary"])
+    top3_html = render_top3_cards(result["predicted_top3_pitches"], "상대 투수가 던질 가능성이 높은 구종 Top-3")
+    risk_html = render_risk_cards(result["risk_summary"])
 
     br = result["batter_mode_result"]
     recommend_card_html = render_hero_recommend_card(
         "노릴 코스", br["target_zone"], "예상 투구 확률·상대 패턴·전략 코멘트를 종합한 최우선 코스",
-        "대응 전략", br["counter_strategy"], accent="#c8102e",
+        "대응 전략", br["counter_strategy"], accent="#1f8a4c",
     )
     pitcher_pattern_html = render_insight_card("상대 투수 패턴 요약", br["pitcher_pattern"]["summary"])
     batter_trajectories = [
         {"pitch_label": loc["pitch_label"], "rank": i + 1, "cell": loc["zone_cell"]}
         for i, loc in enumerate(br["expected_locations"])
     ]
-    scene_json = json.dumps(build_scene_payload(
-        mode="batter", stand=my_stand, zone_scores=br["zone_probability_scores"],
-        highlight_cell=br["target_zone_cell"], metric="PITCH_PROB", trajectories=batter_trajectories,
-    ))
+    hotcold_html = render_batter_zone_board(
+        br["zone_probability_scores"], br["target_zone_cell"], my_stand, batter_trajectories,
+    )
 
     meta = {
         "my_label": f"🏏 내 타자: {get_batter_display(batter_id)}",
@@ -674,18 +663,12 @@ def run_batter_analysis(
         "score_team_label": "타자팀(우리팀)",
     }
     report_md = build_markdown_report("batter", result, meta)
-    matchup_html = render_matchup_column(
-        "batter", pitcher_id, batter_id,
-        pitcher_gauges=_pitch_gauges(br["pitcher_pattern"]),
-        pitcher_note=br["pitcher_pattern"]["summary"],
-    )
-    result_html = _compose_result_html(
-        meta, recommend_card_html, top3_html, risk_html, pitcher_pattern_html,
-    )
     batter_state = {"mode": "batter", "result": result, "meta": meta, "analysis_log_id": analysis_log_id}
+    status_html = render_analysis_status(done=True)
 
     return (
-        matchup_html, scene_json, result_html, report_md, batter_state, render_analysis_status(done=True),
+        matchup_hand_text, top3_html, risk_html, recommend_card_html, pitcher_pattern_html,
+        hotcold_html, report_md, batter_state, status_html,
     )
 
 
@@ -766,374 +749,497 @@ def handle_chat(message, history, state: dict | None):
     return history, ""
 
 
-def _pitch_gauges(pattern: dict | None) -> list[tuple[str, float]]:
-    """구종 비율 상위 3개를 선수 카드 게이지(라벨, 0~1 비율)로 변환한다."""
-    if not pattern:
-        return []
-    return [
-        (f"{pitch_label_kr(p['pitch_label'])}({p['pitch_label']})", float(p["ratio"]))
-        for p in pattern.get("top_pitches", [])[:3]
-    ]
-
-
-def render_matchup_column(
-    mode: str, pitcher_id, batter_id,
-    pitcher_gauges: list[tuple[str, float]] | None = None,
-    pitcher_note: str = "분석을 실행하면 구종 비율이 표시됩니다",
-    batter_note: str = "분석을 실행하면 약점 구종이 표시됩니다",
-) -> str:
-    """좌측 매치업 컬럼. 투수/타자 카드는 항상 같은 순서로 그리고, 역할 배지만 모드에 따라 뒤집는다.
-    선수 이름은 CSV에서 온 외부 문자열이므로 render_player_card 안에서 html.escape 된다."""
-    pitcher_role, batter_role = ("내 투수", "상대 타자") if mode == "pitcher" else ("상대 투수", "내 타자")
-    pitcher_card = render_player_card(
-        scouting_service.get_pitcher_name(pitcher_id),
-        f"{_hand_kr(scouting_service.get_pitcher_throws(pitcher_id))}투",
-        pitcher_note, pitcher_gauges or [],
-    )
-    batter_card = render_player_card(
-        get_batter_display(batter_id),
-        f"{_hand_kr(scouting_service.get_batter_stand(batter_id))}타",
-        batter_note, [],
-    )
-    mine = "ds-mu-slot--mine" if mode == "pitcher" else "ds-mu-slot--rival"
-    rival = "ds-mu-slot--rival" if mode == "pitcher" else "ds-mu-slot--mine"
+def _render_matchup_panel(my_label: str, my_name: str, opponent_label: str, opponent_name: str) -> str:
+    """데스크톱(≥1280px) 2단 레이아웃 우측에 상시 노출되는 "현재 매치업" 패널.
+    누가 누구와 붙는지만 크게 보여주는 용도라 이름만 표시한다 — 카운트/이닝은
+    STEP 2의 시각화 스코어보드(render_count_scoreboard)에서 이미 보여주므로 중복하지 않는다.
+    모바일/태블릿에서는 .ds-matchup-panel이 display:none이라 이 패널 자체가 안 보이므로,
+    좁은 화면에서는 STEP 1로 돌아가야 매치업을 다시 확인할 수 있다."""
     return f"""
-<div class="ds-matchup">
-  <div class="ds-mu-slot {mine}"><div class="ds-mu-role">{pitcher_role}</div>{pitcher_card}</div>
-  <div class="ds-vs"><span class="ds-vs__txt">VS</span></div>
-  <div class="ds-mu-slot {rival}"><div class="ds-mu-role">{batter_role}</div>{batter_card}</div>
-</div>
-""".strip()
-
-
-def _runners_text(on1b: int, on2b: int, on3b: int) -> str:
-    names = [name for name, on in (("1루", on1b), ("2루", on2b), ("3루", on3b)) if on]
-    return ", ".join(names) if names else "없음"
-
-
-def _top3_section(top3: list[dict], caption: str) -> str:
-    """모드마다 Top-3의 뜻이 달라서(내가 던질 구종 vs 상대가 던져올 구종) 캡션을 붙인다.
-    섹션 제목("예측 확률 Top-3")만으로는 어느 쪽인지 알 수 없다."""
-    return f'<p class="ds-caption">{html.escape(caption)}</p>{render_top3_gauges(top3)}'
-
-
-def _compose_result_html(meta: dict, hero_html: str, top3_html: str, risk_html: str, insight_html: str) -> str:
-    """우측 결과 컬럼 한 덩어리. 상황 요약 → 히어로 추천 → Top-3 → 위험도 → 참고 순서는 목업과 같다."""
-    c = meta["context"]
-    topbot = "초" if c["inning_topbot_enc"] == 1 else "말"
-    situation = (
-        f"<b>{c['inning']}회{topbot}</b> · {c['balls']}B–{c['strikes']}S–{c['outs_when_up']}아웃 · "
-        f"주자 {_runners_text(c['on_1b'], c['on_2b'], c['on_3b'])} · "
-        f"우리 <b>{meta['our_score']}</b> : 상대 <b>{meta['opponent_score']}</b> ({meta['score_situation_label']})"
-    )
-    return f"""
-<p class="ds-situation">{situation}</p>
-{hero_html}
-<div class="ds-sec"><div class="ds-sec__t">예측 확률 Top-3</div>{top3_html}</div>
-<div class="ds-sec"><div class="ds-sec__t">위험도</div>{risk_html}</div>
-<div class="ds-sec"><div class="ds-sec__t">참고</div>{insight_html}</div>
-""".strip()
-
-
-# 페이로드가 엔진으로 들어가는 유일한 통로. change와 load 두 곳에서 같은 것을 쓴다.
-_SCENE_UPDATE_JS = "(v) => { if (v && window.dsScene) { window.dsScene.update(JSON.parse(v)); } }"
-
-
-def _empty_scene_payload(mode: str) -> str:
-    """분석 전·모드 전환 직후의 씬. 9칸을 전부 0으로 두면 엔진이 중립색으로 그린다.
-
-    빈 문자열을 보내면 캔버스가 직전 모드의 그림을 그대로 들고 있어, 시점을 바꿨는데
-    화면은 안 바뀌는 상태가 된다. 타석(stand)은 분석 전이라 알 수 없으므로 목업과 같은
-    기본값 L을 쓴다 — 값이 전부 0이라 좌/우 어느 쪽이든 격자 모양은 같다.
+    <div class="ds-mp-title">현재 매치업</div>
+    <div class="ds-mp-role">{my_label}</div>
+    <div class="ds-mp-name">{my_name}</div>
+    <div class="ds-mp-vs">VS</div>
+    <div class="ds-mp-role">{opponent_label}</div>
+    <div class="ds-mp-name">{opponent_name}</div>
     """
-    return json.dumps(build_scene_payload(
-        mode=mode, stand="L", zone_scores={}, highlight_cell=5, metric="",
-    ))
+
+
+def render_pitcher_matchup_summary(pitcher_id, batter_id) -> str:
+    """pitcher_id/batter_id는 .change() 와이어링에서 gr.Dropdown(choices=(label, id) 튜플)이
+    실제로 넘겨주는 id 값이므로, 표시용 이름으로 변환해서 렌더링한다."""
+    return _render_matchup_panel(
+        "내 투수", scouting_service.get_pitcher_name(pitcher_id),
+        "상대 타자", get_batter_display(batter_id),
+    )
+
+
+def render_batter_matchup_summary(batter_id, pitcher_id) -> str:
+    return _render_matchup_panel(
+        "내 타자", get_batter_display(batter_id),
+        "상대 투수", scouting_service.get_pitcher_name(pitcher_id),
+    )
+
+
+def render_count_scoreboard(balls, strikes, outs, inning, topbot) -> str:
+    """STEP 2의 슬라이더/숫자 입력값을 게임 스코어보드처럼 한눈에 보이게 재표시한다.
+    원시 입력 컴포넌트(gr.Slider 등)는 그대로 두고, 그 값을 읽어 시각화만 추가하는 방식이라
+    실제 분석에 쓰이는 값(=원시 입력값)과 화면에 보이는 값이 항상 일치한다."""
+    def _dots(n: int, total: int, color: str) -> str:
+        n = int(n)
+        return "".join(
+            f'<span class="ds-cb-dot{" on" if i < n else ""}" style="--c:{color}"></span>'
+            for i in range(total)
+        )
+    inning_display = inning if inning is not None else "-"
+    topbot_short = "초" if "초" in topbot else "말"
+    return f"""
+    <div class="ds-count-board">
+      <div class="ds-cb-item"><span class="ds-cb-label">B</span>{_dots(balls, 3, '#1f8a4c')}</div>
+      <div class="ds-cb-item"><span class="ds-cb-label">S</span>{_dots(strikes, 2, '#b8860b')}</div>
+      <div class="ds-cb-item"><span class="ds-cb-label">O</span>{_dots(outs, 2, '#c8102e')}</div>
+      <div class="ds-cb-inning">{inning_display}회 {topbot_short}</div>
+    </div>
+    """
 
 
 # ============================================================================
 # Gradio 레이아웃
 # ============================================================================
 
-MODE_CHOICES = [("투수 모드", "pitcher"), ("타자 모드", "batter")]
-TOPBOT_CHOICES = ["초(Top)", "말(Bot)"]
-MAX_INNING = 20
-MAX_SCORE = 30
-
-HEADER_HTML = """
-<header class="ds-top">
-  <div class="ds-brand">
-    <span class="ds-brand__mark" aria-hidden="true"></span>
-    <span class="ds-brand__word">DiamondScout</span>
-    <span class="ds-brand__sub">덕아웃 콘솔</span>
-  </div>
-  <div class="ds-top__note">다음 구종 예측 · 위험도 · 상대 분석을 한 화면에서 확인합니다</div>
-</header>
-"""
-
-RESULT_EMPTY_HTML = (
-    '<p class="ds-situation">아직 분석하지 않았습니다. 상황을 맞춘 뒤 좌측 <b>분석 실행</b>을 누르세요.</p>'
-)
+WIZARD_STEP_LABELS = ["STEP 1 매치업", "STEP 2 상황판", "STEP 3 베이스&스코어", "STEP 4 작전지시"]
 
 
-# ---------------------------------------------------------------------------
-# 상태 → 렌더 (HTML은 표시 전용, 값의 단일 진실 공급원은 gr.State)
-# ---------------------------------------------------------------------------
-
-def _topbot_code(topbot_kr: str) -> str:
-    return "Top" if str(topbot_kr).startswith("초") else "Bot"
-
-
-def _on_count_click(kind: str, balls, strikes, outs):
-    """램프를 누르면 해당 카운트만 한 칸 올라가고, 최대치에서 한 번 더 누르면 0으로 돌아간다."""
-    balls, strikes, outs = int(balls), int(strikes), int(outs)
-    if kind == "balls":
-        balls = cycle_value(balls, MAX_BALLS)
-    elif kind == "strikes":
-        strikes = cycle_value(strikes, MAX_STRIKES)
-    else:
-        outs = cycle_value(outs, MAX_OUTS)
-    return balls, strikes, outs, render_count_lamps(balls, strikes, outs)
+def _step_dot_classes(step: int) -> list[list[str]]:
+    """1~4번 스텝 진행 트랙 버튼에 완료(레드)/현재(네이비)/예정(연한 회색) 상태 클래스를 계산한다."""
+    classes = []
+    for i in range(1, 5):
+        if i < step:
+            classes.append(["ds-step-dot", "ds-step-done"])
+        elif i == step:
+            classes.append(["ds-step-dot", "ds-step-now"])
+        else:
+            classes.append(["ds-step-dot", "ds-step-next"])
+    return classes
 
 
-def _on_base_click(index: int, bases):
-    updated = toggle_base(tuple(int(b) for b in bases), index)
-    return updated, render_base_diamond(*updated)
-
-
-def _on_step(field: str, delta: int, inning, topbot, us, them):
-    inning, us, them = int(inning), int(us), int(them)
-    if field == "inning":
-        inning = max(1, min(MAX_INNING, inning + delta))
-    elif field == "us":
-        us = max(0, min(MAX_SCORE, us + delta))
-    else:
-        them = max(0, min(MAX_SCORE, them + delta))
-    return inning, us, them, render_scoreboard(inning, _topbot_code(topbot), us, them)
-
-
-def _on_topbot_change(topbot, inning, us, them):
-    return render_scoreboard(int(inning), _topbot_code(topbot), int(us), int(them))
-
-
-def _on_mode_change(mode, pitcher_id, batter_id, comment):
-    """모드를 바꾸면 직전 결과는 반대 관점의 값이라 그대로 두면 오독을 부른다. 결과를 비운다.
-    코멘트는 사용자가 손대지 않은 기본 문구일 때만 그 모드의 기본값으로 갈아 끼운다."""
-    defaults = {"pitcher": DEFAULT_COMMENT_PITCHER, "batter": DEFAULT_COMMENT_BATTER}
-    next_comment = defaults[mode] if comment in defaults.values() else comment
+def _step_dot_updates(step: int):
+    c = _step_dot_classes(step)
     return (
-        render_matchup_column(mode, pitcher_id, batter_id),
-        _empty_scene_payload(mode),
-        RESULT_EMPTY_HTML,
-        "",
-        None,
-        "",
-        next_comment,
+        gr.Button(elem_classes=c[0]), gr.Button(elem_classes=c[1]),
+        gr.Button(elem_classes=c[2]), gr.Button(elem_classes=c[3]),
     )
 
 
-def run_analysis(
-    mode, pitcher_id, batter_id, balls, strikes, outs, inning, topbot, bases, our_score, opponent_score, comment,
-):
-    """모드에 따라 투수/타자 분석으로 갈라준다. 두 함수 모두 (내 선수, 상대 선수) 순서라 인자가 뒤집힌다."""
-    on1b, on2b, on3b = (int(b) for b in bases)
-    args = (balls, strikes, outs, inning, topbot, on1b, on2b, on3b, our_score, opponent_score, comment)
-    if mode == "pitcher":
-        return run_pitcher_analysis(pitcher_id, batter_id, *args)
-    return run_batter_analysis(batter_id, pitcher_id, *args)
+def _analyze_btn_update(step: int):
+    """분석 실행 버튼은 마지막 스텝(STEP 4)에서만 노출한다.
+    '다음' 버튼은 별도 visible= 토글 대신, 이 버튼이 보일 때 CSS 형제 선택자(.ds-btn-analyze:not(.hidden) ~
+    .ds-btn-next)로 숨긴다 — 두 버튼의 visible=을 같은 이벤트에 함께 토글하면 두 번째 전환부터
+    간헐적으로 갱신이 반영되지 않는 문제가 있었다(아래 _step_prev 설명과 동일한 Gradio 이슈)."""
+    return gr.Button(visible=int(step) == 4)
 
 
-# 씬 엔진이 배경·인물 이미지를 /gradio_api/file= 로 가져간다. 목업은 base64로 인라인했지만
-# 앱에서는 1MB를 매 페이지 로드마다 실어 나를 이유가 없다.
-gr.set_static_paths(paths=[Path(__file__).resolve().parent / "ui" / "static" / "assets"])
+def _goto_step_1():
+    return (gr.Tabs(selected=0), 1, *_step_dot_updates(1), _analyze_btn_update(1))
 
-# head= 로 넣는 이유: gr.HTML 안의 <script>는 innerHTML 경로라 실행이 보장되지 않는다.
-# 대신 head는 앱 렌더보다 먼저 돌기 때문에, 엔진은 DOM 잡는 일을 mount()로 미뤄 뒀다.
-# Gradio 6에서 css/head는 Blocks가 아니라 launch()가 받는다. Blocks에 넘겨도 하위
-# 호환으로 동작하지만 경고가 뜨고 언젠가 끊긴다.
-SCENE_HEAD = f"<script>{scene_engine_js()}</script>"
 
-with gr.Blocks(title="DiamondScout AI") as demo:
-    gr.HTML(HEADER_HTML)
+def _chip_goto(target: int, current_step) -> tuple:
+    """진행 트랙 칩은 이미 지나왔거나 현재 스텝으로는 자유롭게 이동할 수 있지만, 아직
+    도달하지 않은(예정) 스텝으로는 건너뛸 수 없다 — 내용을 채우지 않고 앞 스텝으로
+    건너뛰는 것을 막기 위해 '다음' 버튼을 눌러야만 전진하도록 강제한다."""
+    current = int(current_step)
+    step = target if target <= current else current
+    return (gr.Tabs(selected=step - 1), step, *_step_dot_updates(step), _analyze_btn_update(step))
 
-    balls_state = gr.State(0)
-    strikes_state = gr.State(0)
-    outs_state = gr.State(0)
-    bases_state = gr.State((0, 0, 0))
-    inning_state = gr.State(1)
-    us_state = gr.State(0)
-    them_state = gr.State(0)
-    result_state = gr.State(None)
 
-    with gr.Row(elem_classes=["ds-console"]):
-        # ------------------------------------------------------------------
-        # 좌 · 매치업
-        # ------------------------------------------------------------------
-        with gr.Column(scale=3, elem_classes=["ds-col-matchup"]):
-            with gr.Column(elem_classes=["ds-card"]):
-                gr.HTML('<div class="ds-card__title">매치업</div>')
-                pitcher_id_input = gr.Dropdown(choices=DEMO_PITCHER_CHOICES, value=DEFAULT_PITCHER_ID, label="투수")
-                batter_id_input = gr.Dropdown(choices=DEMO_BATTER_CHOICES, value=DEFAULT_BATTER_ID, label="타자")
-                matchup_html = gr.HTML(render_matchup_column("pitcher", DEFAULT_PITCHER_ID, DEFAULT_BATTER_ID))
-                comment_input = gr.Textbox(value=DEFAULT_COMMENT_PITCHER, label="작전 지시 (전략 의도)", lines=2)
-                analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn", "ds-btn--primary"])
-                status_output = gr.HTML()
+def _goto_step_2(current_step):
+    return _chip_goto(2, current_step)
 
-        # ------------------------------------------------------------------
-        # 중 · 스트라이크 존 + 상황 조작
-        # ------------------------------------------------------------------
-        with gr.Column(scale=5, elem_classes=["ds-col-zone"]):
-            # 투수/타자를 탭으로 나눈다. 탭은 모드를 고르는 역할만 하고 내용은 아래 3열이
-            # 그대로 받는다 - 탭마다 3열을 한 벌씩 그리면 app.py가 두 배로 늘어난다.
-            # 값의 진실 공급원은 계속 mode_input이다. 탭은 그 값을 바꾸기만 한다.
-            with gr.Tabs(elem_classes=["ds-modetabs"]):
-                tab_pitcher = gr.Tab("⚾ 투수 모드", id="pitcher")
-                tab_batter = gr.Tab("🏏 타자 모드", id="batter")
-            mode_input = gr.Radio(MODE_CHOICES, value="pitcher", visible=False)
-            gr.HTML(render_scene_canvas())
-            # 씬은 캔버스라 Gradio가 값으로 다시 그릴 수 없다. Python이 만든 페이로드를
-            # 숨긴 텍스트박스에 실어 보내고, 그 change가 JS 엔진을 깨우는 구조다.
-            # 값의 진실 공급원은 계속 Python이고 JS는 표시만 한다(Task 4의 상태 규약과 같다).
-            scene_payload = gr.Textbox(
-                value=_empty_scene_payload("pitcher"), visible=False, elem_id="scenePayload",
+
+def _goto_step_3(current_step):
+    return _chip_goto(3, current_step)
+
+
+def _goto_step_4(current_step):
+    return _chip_goto(4, current_step)
+
+
+def _step_prev(current_step: int):
+    """다음/이전 버튼은 gr.Tabs(selected=)로 카드 하나를 전환한다.
+    Column 4개를 visible= 로 각각 토글하는 방식은 두 번째 전환부터 간헐적으로
+    갱신이 반영되지 않는 문제가 있어 (스텝2->3, 3->4에서 재현), Gradio가 이런
+    스텝형 전환을 위해 제공하는 gr.Tabs(selected=) 방식으로 바꿨다."""
+    target = max(1, int(current_step) - 1)
+    return (gr.Tabs(selected=target - 1), target, *_step_dot_updates(target), _analyze_btn_update(target))
+
+
+def _step_next(current_step: int):
+    target = min(4, int(current_step) + 1)
+    return (gr.Tabs(selected=target - 1), target, *_step_dot_updates(target), _analyze_btn_update(target))
+
+
+with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
+    gr.Markdown("# ⚾ DiamondScout AI")
+    gr.Markdown("투수 모드 / 타자 모드로 나눠, 다음 구종 예측(RandomForest) + 위험도 + 상대 분석 + Q&A를 한 화면에서 확인하는 전력분석 데모")
+
+    with gr.Column(elem_classes=["ds-landing"], visible=True) as landing_view:
+        gr.HTML("""
+        <div class="ds-landing-hero">
+          <div class="ds-landing-badge">전력분석 데모</div>
+          <h2 class="ds-landing-title">다음 투구를 미리 읽는다</h2>
+          <p class="ds-landing-sub">투수·타자 관점에서 다음 구종을 예측하고, 위험도와 상대 약점을 코칭 보드로 정리해드립니다.</p>
+        </div>
+        """)
+        with gr.Row(elem_classes=["ds-landing-features"]):
+            gr.HTML(
+                '<div class="ds-landing-feature"><div class="ds-lf-title">다음 구종 예측</div>'
+                '<div class="ds-lf-desc">상황·매치업을 종합해 Top-3 구종을 추천합니다</div></div>'
             )
-            scene_payload.change(None, scene_payload, None, js=_SCENE_UPDATE_JS)
-            # change는 초기값으로는 안 터진다. load를 걸어주지 않으면 분석 전까지 캔버스가
-            # 빈 사각형으로 남는다(엔진은 update가 와야 처음 그린다).
-            demo.load(None, scene_payload, None, js=_SCENE_UPDATE_JS)
+            gr.HTML(
+                '<div class="ds-landing-feature"><div class="ds-lf-title">위험도 분석</div>'
+                '<div class="ds-lf-desc">패턴 노출·장타·홈런·볼넷 위험을 한눈에 확인합니다</div></div>'
+            )
+            gr.HTML(
+                '<div class="ds-landing-feature"><div class="ds-lf-title">Instant Scout Q&A</div>'
+                '<div class="ds-lf-desc">분석 결과를 근거로 후속 질문에 즉석으로 답합니다</div></div>'
+            )
+        landing_start_btn = gr.Button("시작하기", variant="primary", elem_classes=["ds-btn-analyze", "ds-landing-start"])
 
-            with gr.Column(elem_classes=["ds-card", "ds-ctrl-card"]):
-                gr.HTML('<div class="ds-card__title">상황 조작</div>')
+    with gr.Tabs(visible=False) as main_tabs:
+        # ------------------------------------------------------------------
+        # 투수 모드
+        # ------------------------------------------------------------------
+        with gr.Tab("⚾ 투수 모드"):
+            gr.Markdown("내가 투수라는 관점에서, 다음 투구로 상대를 아웃 처리하거나 약한 타구를 유도하기 좋은 구종/코스를 추천합니다.")
 
-                gr.HTML('<div class="ds-ctrl__label">카운트 — 램프를 눌러 올립니다</div>')
-                # 램프 HTML 위에 투명 버튼 3개를 겹쳐, 목업처럼 램프 줄 자체를 누르게 한다.
-                # 값은 버튼이 아니라 state가 갖고 있으므로 화면값과 실제값이 갈라지지 않는다.
-                with gr.Column(elem_classes=["ds-lamp-stack"]):
-                    count_html = gr.HTML(render_count_lamps(0, 0, 0))
-                    with gr.Column(elem_classes=["ds-lamp-hits"]):
-                        balls_btn = gr.Button("볼 카운트 올리기", elem_classes=["ds-hit-btn"])
-                        strikes_btn = gr.Button("스트라이크 카운트 올리기", elem_classes=["ds-hit-btn"])
-                        outs_btn = gr.Button("아웃 카운트 올리기", elem_classes=["ds-hit-btn"])
+            p_step_state = gr.State(1)
 
-                gr.HTML('<div class="ds-ctrl__label">주자 — 베이스를 눌러 올리고 내립니다</div>')
-                with gr.Column(elem_classes=["ds-diamond-stack"]):
-                    diamond_html = gr.HTML(render_base_diamond(0, 0, 0))
-                    with gr.Column(elem_classes=["ds-base-hits"]):
-                        base1_btn = gr.Button("1루 주자", elem_classes=["ds-base-hit", "ds-base-hit--1"])
-                        base2_btn = gr.Button("2루 주자", elem_classes=["ds-base-hit", "ds-base-hit--2"])
-                        base3_btn = gr.Button("3루 주자", elem_classes=["ds-base-hit", "ds-base-hit--3"])
+            with gr.Row(elem_classes=["ds-wizard-progress"]):
+                p_chip1 = gr.Button(WIZARD_STEP_LABELS[0], elem_classes=["ds-step-dot", "ds-step-now"], size="sm")
+                p_chip2 = gr.Button(WIZARD_STEP_LABELS[1], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
+                p_chip3 = gr.Button(WIZARD_STEP_LABELS[2], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
+                p_chip4 = gr.Button(WIZARD_STEP_LABELS[3], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
 
-                gr.HTML('<div class="ds-ctrl__label">이닝 · 스코어</div>')
-                scoreboard_html = gr.HTML(render_scoreboard(1, "Top", 0, 0))
-                with gr.Row(elem_classes=["ds-steprow"]):
-                    inning_minus_btn = gr.Button("이닝 −", elem_classes=["ds-btn", "ds-btn--ghost", "ds-step-btn"])
-                    inning_plus_btn = gr.Button("이닝 +", elem_classes=["ds-btn", "ds-btn--ghost", "ds-step-btn"])
-                    topbot_input = gr.Radio(TOPBOT_CHOICES, value="초(Top)", label="초/말", elem_classes=["ds-seg"])
-                with gr.Row(elem_classes=["ds-steprow"]):
-                    us_minus_btn = gr.Button("우리 −", elem_classes=["ds-btn", "ds-btn--ghost", "ds-step-btn"])
-                    us_plus_btn = gr.Button("우리 +", elem_classes=["ds-btn", "ds-btn--ghost", "ds-step-btn"])
-                    them_minus_btn = gr.Button("상대 −", elem_classes=["ds-btn", "ds-btn--ghost", "ds-step-btn"])
-                    them_plus_btn = gr.Button("상대 +", elem_classes=["ds-btn", "ds-btn--ghost", "ds-step-btn"])
+            with gr.Row(elem_classes=["ds-wizard-row"]):
+                with gr.Column(scale=3):
+                    with gr.Tabs(elem_classes=["ds-wizard-tabs"]) as p_wizard_tabs:
+                        with gr.Tab("매치업", id=0):
+                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
+                                gr.HTML('<div class="ds-panel-title">STEP 1 · 매치업</div>')
+                                with gr.Row():
+                                    p_pitcher_id_input = gr.Dropdown(choices=DEMO_PITCHER_CHOICES, value=DEFAULT_PITCHER_ID, label="내 투수 ID")
+                                    p_batter_id_input = gr.Dropdown(choices=DEMO_BATTER_CHOICES, value=DEFAULT_BATTER_ID, label="상대 타자 ID")
+                                gr.Markdown("좌타/우타·좌투/우투는 데이터에서 자동으로 추정됩니다.")
+
+                        with gr.Tab("상황판", id=1):
+                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
+                                gr.HTML('<div class="ds-panel-title">STEP 2 · 상황판</div>')
+                                gr.Markdown("#### 카운트 스코어보드")
+                                with gr.Row(elem_classes=["ds-scoreboard"]):
+                                    p_balls_input = gr.Slider(0, 3, value=0, step=1, label="볼")
+                                    p_strikes_input = gr.Slider(0, 2, value=0, step=1, label="스트라이크")
+                                    p_outs_input = gr.Slider(0, 2, value=2, step=1, label="아웃")
+                                with gr.Row():
+                                    p_inning_input = gr.Number(value=1, precision=0, label="이닝")
+                                    p_topbot_input = gr.Radio(["초(Top)", "말(Bot)"], value="초(Top)", label="이닝 초/말")
+                                p_count_board_output = gr.HTML(render_count_scoreboard(0, 0, 2, 1, "초(Top)"))
+
+                        with gr.Tab("베이스 & 스코어", id=2):
+                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
+                                gr.HTML('<div class="ds-panel-title">STEP 3 · 베이스 & 스코어</div>')
+                                gr.Markdown("#### 주자 상황 — 루를 클릭해 표시하세요")
+                                with gr.Row(elem_classes=["ds-diamond-wrap"]):
+                                    with gr.Column(elem_classes=["ds-diamond"]):
+                                        p_on2b_input = gr.Checkbox(value=False, label="2루", elem_classes=["ds-base-card", "ds-base-2b"])
+                                        p_on3b_input = gr.Checkbox(value=False, label="3루", elem_classes=["ds-base-card", "ds-base-3b"])
+                                        p_on1b_input = gr.Checkbox(value=False, label="1루", elem_classes=["ds-base-card", "ds-base-1b"])
+                                gr.Markdown("#### 스코어")
+                                with gr.Row():
+                                    p_our_score_input = gr.Number(value=0, precision=0, label="우리팀 점수")
+                                    gr.Markdown("<div style='text-align:center; padding-top:28px; font-weight:800;'>:</div>")
+                                    p_opponent_score_input = gr.Number(value=0, precision=0, label="상대팀 점수")
+
+                        with gr.Tab("작전 지시", id=3):
+                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
+                                gr.HTML('<div class="ds-panel-title">STEP 4 · 작전 지시</div>')
+                                p_comment_input = gr.Textbox(value=DEFAULT_COMMENT_PITCHER, label="코치에게 전달할 전략 의도", lines=2)
+
+                with gr.Column(scale=2, elem_classes=["ds-matchup-panel"]):
+                    p_matchup_output = gr.HTML(
+                        render_pitcher_matchup_summary(DEFAULT_PITCHER_ID, DEFAULT_BATTER_ID)
+                    )
+
+            # 다음/이전/분석 버튼은 스텝 카드 밖, 항상 마운트된 컨트롤바에 둔다.
+            # analyze -> next 순서로 배치: '다음' 버튼은 별도 visible= 토글 없이, analyze가 보일 때
+            # CSS 형제 선택자(.ds-btn-analyze:not(.hidden) ~ .ds-btn-next)로 숨긴다.
+            with gr.Row():
+                p_prev_btn = gr.Button("⬅ 이전", elem_classes=["ds-btn-prev"])
+                # 초기값은 visible=True로 두고 아래 demo.load()에서 실제 이벤트로 한 번 False로 되돌린다.
+                # STEP1~3에서 처음 STEP4로 넘어갈 때 이 버튼의 visible=이 False->True로 바뀌는 첫 전환이
+                # 간헐적으로 화면에 반영되지 않는 문제가 있었는데(Gradio 컴포넌트가 Python 쪽 정적 초기값에서
+                # 한 번도 실제 업데이트를 거치지 않은 상태로 있다가 처음 값이 바뀔 때 발생), load 시점에
+                # 미리 한 번 실제 업데이트를 거치게 하면 이후 전환은 안정적으로 반영된다.
+                p_analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn-analyze"], visible=True)
+                p_next_btn = gr.Button("다음 ➡", elem_classes=["ds-btn-next"])
+
+            p_reset_btn = gr.Button("다시 분석", elem_classes=["ds-btn-reset"])
+            p_status_output = gr.HTML()
+
+            with gr.Group(elem_classes=["ds-board"], visible=False) as p_board_group:
+                gr.HTML('<div class="ds-board-title">코칭 보드</div>')
+                p_hand_output = gr.Markdown()
+                p_top3_output = gr.HTML()
+
+                gr.Markdown("#### 🎯 추천 구종", elem_classes=["ds-board-section-title"])
+                p_recommend_card_output = gr.HTML()
+
+                with gr.Row(elem_classes=["ds-quick-row"]):
+                    with gr.Column():
+                        gr.Markdown("#### 위험도 카드")
+                        p_risk_html_output = gr.HTML(label="위험도 요약")
+                    with gr.Column():
+                        gr.Markdown("#### 상대 타자 약점")
+                        p_batter_weakness_output = gr.HTML()
+
+                gr.Markdown("#### STRIKE ZONE BOARD", elem_classes=["ds-board-section-title"])
+                p_hotcold_plot = gr.HTML()
+
+                with gr.Accordion("상세 리포트 전체 보기 (근거 · 참고 데이터)", open=False, elem_classes=["ds-report-accordion"]):
+                    p_report_output = gr.Markdown(elem_classes=["ds-report-md"])
+                p_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
+                # 초기값은 visible=True로 두고 demo.load()에서 실제 이벤트로 한 번 False로 되돌린다.
+                # (분석 실행 버튼과 동일한 이유 — Gradio 첫 visible= 전환 누락 버그 회피)
+                p_pdf_file_output = gr.File(label="다운로드 파일", visible=True, elem_classes=["ds-pdf-file"])
+
+            with gr.Group(elem_classes=["ds-qa-panel"], visible=False) as p_qa_group:
+                gr.HTML('<div class="ds-qa-title">Instant Scout Q&A</div>')
+                with gr.Row(elem_classes=["ds-qa-chips"]):
+                    p_example_btns = [gr.Button(q, size="sm") for q in EXAMPLE_QUESTIONS]
+                p_chatbot = gr.Chatbot(label="투수 모드 Q&A", show_label=False, height=340, elem_classes=["ds-chatbot"])
+                with gr.Row(elem_classes=["ds-qa-input-row"]):
+                    p_chat_input = gr.Textbox(label="", placeholder="분석 결과에 대해 질문해보세요", scale=4, container=False)
+                    p_chat_send_btn = gr.Button("전송", scale=1, elem_classes=["ds-btn-send"])
+
+            p_result_state = gr.State(None)
+
+            p_analyze_btn.click(
+                fn=lambda: render_analysis_status(done=False), outputs=[p_status_output],
+            ).then(
+                fn=run_pitcher_analysis,
+                inputs=[
+                    p_pitcher_id_input, p_batter_id_input, p_balls_input, p_strikes_input, p_outs_input,
+                    p_inning_input, p_topbot_input, p_on1b_input, p_on2b_input, p_on3b_input,
+                    p_our_score_input, p_opponent_score_input, p_comment_input,
+                ],
+                outputs=[
+                    p_hand_output, p_top3_output, p_risk_html_output, p_recommend_card_output,
+                    p_batter_weakness_output, p_hotcold_plot, p_report_output, p_result_state, p_status_output,
+                ],
+            ).then(
+                fn=lambda: gr.Group(visible=True), outputs=[p_board_group],
+            ).then(
+                fn=lambda: gr.Group(visible=True), outputs=[p_qa_group],
+            )
+            p_pdf_btn.click(
+                fn=generate_pdf, inputs=[p_result_state], outputs=[p_pdf_file_output],
+            ).then(
+                fn=lambda: gr.File(visible=True), outputs=[p_pdf_file_output],
+            )
+
+            p_wizard_outputs = [p_wizard_tabs, p_step_state, p_chip1, p_chip2, p_chip3, p_chip4, p_analyze_btn]
+            p_matchup_inputs = [p_pitcher_id_input, p_batter_id_input]
+            for comp in p_matchup_inputs:
+                comp.change(fn=render_pitcher_matchup_summary, inputs=p_matchup_inputs, outputs=[p_matchup_output])
+            p_count_inputs = [p_balls_input, p_strikes_input, p_outs_input, p_inning_input, p_topbot_input]
+            for comp in p_count_inputs:
+                comp.change(fn=render_count_scoreboard, inputs=p_count_inputs, outputs=[p_count_board_output])
+            p_prev_btn.click(fn=_step_prev, inputs=[p_step_state], outputs=p_wizard_outputs)
+            p_next_btn.click(fn=_step_next, inputs=[p_step_state], outputs=p_wizard_outputs)
+            p_chip1.click(fn=_goto_step_1, outputs=p_wizard_outputs)
+            p_chip2.click(fn=_goto_step_2, inputs=[p_step_state], outputs=p_wizard_outputs)
+            p_chip3.click(fn=_goto_step_3, inputs=[p_step_state], outputs=p_wizard_outputs)
+            p_chip4.click(fn=_goto_step_4, inputs=[p_step_state], outputs=p_wizard_outputs)
+            p_reset_btn.click(fn=_goto_step_1, outputs=p_wizard_outputs)
+
+            p_chat_send_btn.click(
+                fn=handle_chat, inputs=[p_chat_input, p_chatbot, p_result_state], outputs=[p_chatbot, p_chat_input],
+            )
+            p_chat_input.submit(
+                fn=handle_chat, inputs=[p_chat_input, p_chatbot, p_result_state], outputs=[p_chatbot, p_chat_input],
+            )
+            for btn, question in zip(p_example_btns, EXAMPLE_QUESTIONS):
+                btn.click(fn=lambda q=question: q, outputs=[p_chat_input]).then(
+                    fn=handle_chat, inputs=[p_chat_input, p_chatbot, p_result_state], outputs=[p_chatbot, p_chat_input],
+                )
 
         # ------------------------------------------------------------------
-        # 우 · 결과
+        # 타자 모드
         # ------------------------------------------------------------------
-        with gr.Column(scale=4, elem_classes=["ds-col-result"]):
-            with gr.Column(elem_classes=["ds-card", "ds-result"]):
-                gr.HTML('<div class="ds-card__title">추천 결과</div>')
-                result_html = gr.HTML(RESULT_EMPTY_HTML)
+        with gr.Tab("🏏 타자 모드"):
+            gr.Markdown("내가 타자라는 관점에서, 상대 투수가 다음에 던질 가능성이 높은 구종과 노려야 할 코스를 추천합니다.")
 
-    with gr.Accordion("코칭 리포트", open=False, elem_classes=["ds-report-accordion"]):
-        report_md = gr.Markdown(elem_classes=["ds-report-md"])
-        pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn", "ds-btn--ghost", "ds-btn-pdf"])
-        # 초기값은 visible=True로 두고 demo.load()에서 실제 이벤트로 한 번 False로 되돌린다
-        # (Gradio가 정적 초기값에서 첫 visible= 전환을 간헐적으로 누락하는 문제 회피).
-        pdf_file_output = gr.File(label="다운로드 파일", visible=True, elem_classes=["ds-pdf-file"])
+            b_step_state = gr.State(1)
 
-    with gr.Accordion("Instant Scout Q&A", open=False, elem_classes=["ds-report-accordion"]):
-        with gr.Row(elem_classes=["ds-qa-chips"]):
-            example_btns = [gr.Button(q, size="sm") for q in EXAMPLE_QUESTIONS]
-        chatbot = gr.Chatbot(label="Q&A", show_label=False, height=340, elem_classes=["ds-chatbot"])
-        with gr.Row(elem_classes=["ds-qa-input-row"]):
-            chat_input = gr.Textbox(label="", placeholder="분석 결과에 대해 질문해보세요", scale=4, container=False)
-            chat_send_btn = gr.Button("전송", scale=1, elem_classes=["ds-btn-send"])
+            with gr.Row(elem_classes=["ds-wizard-progress"]):
+                b_chip1 = gr.Button(WIZARD_STEP_LABELS[0], elem_classes=["ds-step-dot", "ds-step-now"], size="sm")
+                b_chip2 = gr.Button(WIZARD_STEP_LABELS[1], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
+                b_chip3 = gr.Button(WIZARD_STEP_LABELS[2], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
+                b_chip4 = gr.Button(WIZARD_STEP_LABELS[3], elem_classes=["ds-step-dot", "ds-step-next"], size="sm")
 
-    # ----------------------------------------------------------------------
-    # 이벤트 배선: 클릭 → state 갱신 → state가 렌더러를 다시 호출 → HTML 갱신
-    # ----------------------------------------------------------------------
-    count_inputs = [balls_state, strikes_state, outs_state]
-    count_outputs = [balls_state, strikes_state, outs_state, count_html]
-    for btn, kind in ((balls_btn, "balls"), (strikes_btn, "strikes"), (outs_btn, "outs")):
-        btn.click(
-            fn=lambda b, s, o, k=kind: _on_count_click(k, b, s, o),
-            inputs=count_inputs, outputs=count_outputs,
-        )
+            with gr.Row(elem_classes=["ds-wizard-row"]):
+                with gr.Column(scale=3):
+                    with gr.Tabs(elem_classes=["ds-wizard-tabs"]) as b_wizard_tabs:
+                        with gr.Tab("매치업", id=0):
+                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
+                                gr.HTML('<div class="ds-panel-title">STEP 1 · 매치업</div>')
+                                with gr.Row():
+                                    b_batter_id_input = gr.Dropdown(choices=DEMO_BATTER_CHOICES, value=DEFAULT_BATTER_ID, label="내 타자 ID")
+                                    b_pitcher_id_input = gr.Dropdown(choices=DEMO_PITCHER_CHOICES, value=DEFAULT_PITCHER_ID, label="상대 투수 ID")
+                                gr.Markdown("좌타/우타·좌투/우투는 데이터에서 자동으로 추정됩니다.")
 
-    for btn, index in ((base1_btn, 0), (base2_btn, 1), (base3_btn, 2)):
-        btn.click(
-            fn=lambda bases, i=index: _on_base_click(i, bases),
-            inputs=[bases_state], outputs=[bases_state, diamond_html],
-        )
+                        with gr.Tab("상황판", id=1):
+                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
+                                gr.HTML('<div class="ds-panel-title">STEP 2 · 상황판</div>')
+                                gr.Markdown("#### 카운트 스코어보드")
+                                with gr.Row(elem_classes=["ds-scoreboard"]):
+                                    b_balls_input = gr.Slider(0, 3, value=0, step=1, label="볼")
+                                    b_strikes_input = gr.Slider(0, 2, value=0, step=1, label="스트라이크")
+                                    b_outs_input = gr.Slider(0, 2, value=2, step=1, label="아웃")
+                                with gr.Row():
+                                    b_inning_input = gr.Number(value=1, precision=0, label="이닝")
+                                    b_topbot_input = gr.Radio(["초(Top)", "말(Bot)"], value="초(Top)", label="이닝 초/말")
+                                b_count_board_output = gr.HTML(render_count_scoreboard(0, 0, 2, 1, "초(Top)"))
 
-    step_inputs = [inning_state, topbot_input, us_state, them_state]
-    step_outputs = [inning_state, us_state, them_state, scoreboard_html]
-    for btn, field, delta in (
-        (inning_minus_btn, "inning", -1), (inning_plus_btn, "inning", 1),
-        (us_minus_btn, "us", -1), (us_plus_btn, "us", 1),
-        (them_minus_btn, "them", -1), (them_plus_btn, "them", 1),
-    ):
-        btn.click(
-            fn=lambda i, t, u, th, f=field, d=delta: _on_step(f, d, i, t, u, th),
-            inputs=step_inputs, outputs=step_outputs,
-        )
+                        with gr.Tab("베이스 & 스코어", id=2):
+                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
+                                gr.HTML('<div class="ds-panel-title">STEP 3 · 베이스 & 스코어</div>')
+                                gr.Markdown("#### 주자 상황 — 루를 클릭해 표시하세요")
+                                with gr.Row(elem_classes=["ds-diamond-wrap"]):
+                                    with gr.Column(elem_classes=["ds-diamond"]):
+                                        b_on2b_input = gr.Checkbox(value=False, label="2루", elem_classes=["ds-base-card", "ds-base-2b"])
+                                        b_on3b_input = gr.Checkbox(value=False, label="3루", elem_classes=["ds-base-card", "ds-base-3b"])
+                                        b_on1b_input = gr.Checkbox(value=False, label="1루", elem_classes=["ds-base-card", "ds-base-1b"])
+                                gr.Markdown("#### 스코어")
+                                with gr.Row():
+                                    b_our_score_input = gr.Number(value=0, precision=0, label="우리팀 점수")
+                                    gr.Markdown("<div style='text-align:center; padding-top:28px; font-weight:800;'>:</div>")
+                                    b_opponent_score_input = gr.Number(value=0, precision=0, label="상대팀 점수")
 
-    topbot_input.change(
-        fn=_on_topbot_change,
-        inputs=[topbot_input, inning_state, us_state, them_state], outputs=[scoreboard_html],
+                        with gr.Tab("작전 지시", id=3):
+                            with gr.Column(elem_classes=["ds-panel", "ds-wizard-card"]):
+                                gr.HTML('<div class="ds-panel-title">STEP 4 · 작전 지시</div>')
+                                b_comment_input = gr.Textbox(value=DEFAULT_COMMENT_BATTER, label="코치에게 전달할 전략 의도", lines=2)
+
+                with gr.Column(scale=2, elem_classes=["ds-matchup-panel"]):
+                    b_matchup_output = gr.HTML(
+                        render_batter_matchup_summary(DEFAULT_BATTER_ID, DEFAULT_PITCHER_ID)
+                    )
+
+            with gr.Row():
+                b_prev_btn = gr.Button("⬅ 이전", elem_classes=["ds-btn-prev"])
+                b_analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn-analyze"], visible=True)
+                b_next_btn = gr.Button("다음 ➡", elem_classes=["ds-btn-next"])
+
+            b_reset_btn = gr.Button("다시 분석", elem_classes=["ds-btn-reset"])
+            b_status_output = gr.HTML()
+
+            with gr.Group(elem_classes=["ds-board"], visible=False) as b_board_group:
+                gr.HTML('<div class="ds-board-title">코칭 보드</div>')
+                b_hand_output = gr.Markdown()
+                b_top3_output = gr.HTML()
+
+                gr.Markdown("#### 🎯 노릴 코스 / 대응 전략", elem_classes=["ds-board-section-title"])
+                b_recommend_card_output = gr.HTML()
+
+                with gr.Row(elem_classes=["ds-quick-row"]):
+                    with gr.Column():
+                        gr.Markdown("#### 위험도 카드")
+                        b_risk_html_output = gr.HTML(label="위험도 요약")
+                    with gr.Column():
+                        gr.Markdown("#### 상대 투수 패턴")
+                        b_pitcher_pattern_output = gr.HTML()
+
+                gr.Markdown("#### STRIKE ZONE BOARD", elem_classes=["ds-board-section-title"])
+                b_hotcold_plot = gr.HTML()
+
+                with gr.Accordion("상세 리포트 전체 보기 (근거 · 참고 데이터)", open=False, elem_classes=["ds-report-accordion"]):
+                    b_report_output = gr.Markdown(elem_classes=["ds-report-md"])
+                b_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
+                b_pdf_file_output = gr.File(label="다운로드 파일", visible=True, elem_classes=["ds-pdf-file"])
+
+            with gr.Group(elem_classes=["ds-qa-panel"], visible=False) as b_qa_group:
+                gr.HTML('<div class="ds-qa-title">Instant Scout Q&A</div>')
+                with gr.Row(elem_classes=["ds-qa-chips"]):
+                    b_example_btns = [gr.Button(q, size="sm") for q in EXAMPLE_QUESTIONS]
+                b_chatbot = gr.Chatbot(label="타자 모드 Q&A", show_label=False, height=340, elem_classes=["ds-chatbot"])
+                with gr.Row(elem_classes=["ds-qa-input-row"]):
+                    b_chat_input = gr.Textbox(label="", placeholder="분석 결과에 대해 질문해보세요", scale=4, container=False)
+                    b_chat_send_btn = gr.Button("전송", scale=1, elem_classes=["ds-btn-send"])
+
+            b_result_state = gr.State(None)
+
+            b_analyze_btn.click(
+                fn=lambda: render_analysis_status(done=False), outputs=[b_status_output],
+            ).then(
+                fn=run_batter_analysis,
+                inputs=[
+                    b_batter_id_input, b_pitcher_id_input, b_balls_input, b_strikes_input, b_outs_input,
+                    b_inning_input, b_topbot_input, b_on1b_input, b_on2b_input, b_on3b_input,
+                    b_our_score_input, b_opponent_score_input, b_comment_input,
+                ],
+                outputs=[
+                    b_hand_output, b_top3_output, b_risk_html_output, b_recommend_card_output,
+                    b_pitcher_pattern_output, b_hotcold_plot, b_report_output, b_result_state, b_status_output,
+                ],
+            ).then(
+                fn=lambda: gr.Group(visible=True), outputs=[b_board_group],
+            ).then(
+                fn=lambda: gr.Group(visible=True), outputs=[b_qa_group],
+            )
+            b_pdf_btn.click(
+                fn=generate_pdf, inputs=[b_result_state], outputs=[b_pdf_file_output],
+            ).then(
+                fn=lambda: gr.File(visible=True), outputs=[b_pdf_file_output],
+            )
+
+            b_wizard_outputs = [b_wizard_tabs, b_step_state, b_chip1, b_chip2, b_chip3, b_chip4, b_analyze_btn]
+            b_matchup_inputs = [b_batter_id_input, b_pitcher_id_input]
+            for comp in b_matchup_inputs:
+                comp.change(fn=render_batter_matchup_summary, inputs=b_matchup_inputs, outputs=[b_matchup_output])
+            b_count_inputs = [b_balls_input, b_strikes_input, b_outs_input, b_inning_input, b_topbot_input]
+            for comp in b_count_inputs:
+                comp.change(fn=render_count_scoreboard, inputs=b_count_inputs, outputs=[b_count_board_output])
+            b_prev_btn.click(fn=_step_prev, inputs=[b_step_state], outputs=b_wizard_outputs)
+            b_next_btn.click(fn=_step_next, inputs=[b_step_state], outputs=b_wizard_outputs)
+            b_chip1.click(fn=_goto_step_1, outputs=b_wizard_outputs)
+            b_chip2.click(fn=_goto_step_2, inputs=[b_step_state], outputs=b_wizard_outputs)
+            b_chip3.click(fn=_goto_step_3, inputs=[b_step_state], outputs=b_wizard_outputs)
+            b_chip4.click(fn=_goto_step_4, inputs=[b_step_state], outputs=b_wizard_outputs)
+            b_reset_btn.click(fn=_goto_step_1, outputs=b_wizard_outputs)
+
+            b_chat_send_btn.click(
+                fn=handle_chat, inputs=[b_chat_input, b_chatbot, b_result_state], outputs=[b_chatbot, b_chat_input],
+            )
+            b_chat_input.submit(
+                fn=handle_chat, inputs=[b_chat_input, b_chatbot, b_result_state], outputs=[b_chatbot, b_chat_input],
+            )
+            for btn, question in zip(b_example_btns, EXAMPLE_QUESTIONS):
+                btn.click(fn=lambda q=question: q, outputs=[b_chat_input]).then(
+                    fn=handle_chat, inputs=[b_chat_input, b_chatbot, b_result_state], outputs=[b_chatbot, b_chat_input],
+                )
+
+    landing_start_btn.click(
+        fn=lambda: (gr.Column(visible=False), gr.Tabs(visible=True)),
+        outputs=[landing_view, main_tabs],
     )
 
-    matchup_inputs = [mode_input, pitcher_id_input, batter_id_input]
-    for comp in (pitcher_id_input, batter_id_input):
-        comp.change(fn=render_matchup_column, inputs=matchup_inputs, outputs=[matchup_html])
-    # 탭을 누르면 mode_input을 바꾼다. 그 change가 기존 배선을 그대로 태운다.
-    tab_pitcher.select(fn=lambda: "pitcher", outputs=[mode_input])
-    tab_batter.select(fn=lambda: "batter", outputs=[mode_input])
-
-    mode_input.change(
-        fn=_on_mode_change, inputs=matchup_inputs + [comment_input],
-        outputs=[matchup_html, scene_payload, result_html, report_md, result_state, status_output, comment_input],
+    demo.load(
+        fn=lambda: (
+            gr.Button(visible=False), gr.Button(visible=False),
+            gr.File(visible=False), gr.File(visible=False),
+        ),
+        outputs=[p_analyze_btn, b_analyze_btn, p_pdf_file_output, b_pdf_file_output],
     )
-
-    analyze_btn.click(
-        fn=lambda: render_analysis_status(done=False), outputs=[status_output],
-    ).then(
-        fn=run_analysis,
-        inputs=[
-            mode_input, pitcher_id_input, batter_id_input, balls_state, strikes_state, outs_state,
-            inning_state, topbot_input, bases_state, us_state, them_state, comment_input,
-        ],
-        outputs=[matchup_html, scene_payload, result_html, report_md, result_state, status_output],
-    )
-
-    pdf_btn.click(
-        fn=generate_pdf, inputs=[result_state], outputs=[pdf_file_output],
-    ).then(
-        fn=lambda: gr.File(visible=True), outputs=[pdf_file_output],
-    )
-
-    chat_send_btn.click(
-        fn=handle_chat, inputs=[chat_input, chatbot, result_state], outputs=[chatbot, chat_input],
-    )
-    chat_input.submit(
-        fn=handle_chat, inputs=[chat_input, chatbot, result_state], outputs=[chatbot, chat_input],
-    )
-    for btn, question in zip(example_btns, EXAMPLE_QUESTIONS):
-        btn.click(fn=lambda q=question: q, outputs=[chat_input]).then(
-            fn=handle_chat, inputs=[chat_input, chatbot, result_state], outputs=[chatbot, chat_input],
-        )
-
-    demo.load(fn=lambda: gr.File(visible=False), outputs=[pdf_file_output])
-
 
 
 if __name__ == "__main__":
@@ -1144,6 +1250,4 @@ if __name__ == "__main__":
         server_name="0.0.0.0",
         server_port=int(port) if port else 7862,
         share=port is None,
-        css=CUSTOM_CSS,
-        head=SCENE_HEAD,
     )
