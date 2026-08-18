@@ -246,6 +246,25 @@ CUSTOM_CSS = """
 .ds-scoreboard .ds-sb-unit { font-size: 14px; color: #e6e1d3; }
 .ds-scoreboard .ds-sb-colon { color: #c8102e; font-size: 22px; font-weight: 800; }
 .ds-steprow { gap: 8px !important; align-items: center !important; flex-wrap: wrap !important; }
+
+/* 투수/타자 모드 탭. 내용은 아래 3열이 받으므로 탭 본문은 비어 있고 헤더만 쓴다.
+   Gradio 6은 탭 헤더 줄에 .tab-container를 쓴다(.tab-nav가 아니다). 접근성용으로
+   같은 버튼을 .visually-hidden 사본으로 한 벌 더 두므로 그쪽은 건드리지 않는다. */
+.ds-modetabs .tab-container:not(.visually-hidden) {
+  gap: 6px !important; border-bottom: 2px solid #e6e1d3 !important;
+}
+.ds-modetabs .tab-container:not(.visually-hidden) button {
+  font-family: 'Teko', 'Pretendard', sans-serif !important;
+  font-size: 19px !important; letter-spacing: 0.05em !important;
+  padding: 10px 22px !important; color: rgba(20, 32, 60, 0.55) !important;
+  border: none !important; background: transparent !important;
+}
+.ds-modetabs .tab-container:not(.visually-hidden) button.selected {
+  color: #c8102e !important; font-weight: 800 !important;
+  box-shadow: inset 0 -3px 0 #c8102e !important;
+}
+/* 빈 탭 본문이 자리를 차지하지 않게 접는다. */
+.ds-modetabs .tabitem { padding: 0 !important; min-height: 0 !important; }
 .ds-step-btn { min-width: 44px !important; padding: 0 12px !important; flex: 0 1 auto !important; }
 
 /* ===== 세그먼트 컨트롤 (gr.Radio를 목업의 세그먼트 버튼처럼) ===== */

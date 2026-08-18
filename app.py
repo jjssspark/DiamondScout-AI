@@ -983,9 +983,13 @@ with gr.Blocks(title="DiamondScout AI") as demo:
         # 중 · 스트라이크 존 + 상황 조작
         # ------------------------------------------------------------------
         with gr.Column(scale=5, elem_classes=["ds-col-zone"]):
-            mode_input = gr.Radio(
-                MODE_CHOICES, value="pitcher", label="시점 모드", elem_classes=["ds-seg", "ds-seg--wide"],
-            )
+            # 투수/타자를 탭으로 나눈다. 탭은 모드를 고르는 역할만 하고 내용은 아래 3열이
+            # 그대로 받는다 - 탭마다 3열을 한 벌씩 그리면 app.py가 두 배로 늘어난다.
+            # 값의 진실 공급원은 계속 mode_input이다. 탭은 그 값을 바꾸기만 한다.
+            with gr.Tabs(elem_classes=["ds-modetabs"]):
+                tab_pitcher = gr.Tab("⚾ 투수 모드", id="pitcher")
+                tab_batter = gr.Tab("🏏 타자 모드", id="batter")
+            mode_input = gr.Radio(MODE_CHOICES, value="pitcher", visible=False)
             gr.HTML(render_scene_canvas())
             # 씬은 캔버스라 Gradio가 값으로 다시 그릴 수 없다. Python이 만든 페이로드를
             # 숨긴 텍스트박스에 실어 보내고, 그 change가 JS 엔진을 깨우는 구조다.
@@ -1091,6 +1095,10 @@ with gr.Blocks(title="DiamondScout AI") as demo:
     matchup_inputs = [mode_input, pitcher_id_input, batter_id_input]
     for comp in (pitcher_id_input, batter_id_input):
         comp.change(fn=render_matchup_column, inputs=matchup_inputs, outputs=[matchup_html])
+    # 탭을 누르면 mode_input을 바꾼다. 그 change가 기존 배선을 그대로 태운다.
+    tab_pitcher.select(fn=lambda: "pitcher", outputs=[mode_input])
+    tab_batter.select(fn=lambda: "batter", outputs=[mode_input])
+
     mode_input.change(
         fn=_on_mode_change, inputs=matchup_inputs + [comment_input],
         outputs=[matchup_html, scene_payload, result_html, report_md, result_state, status_output, comment_input],
