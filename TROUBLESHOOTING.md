@@ -19,7 +19,7 @@
 
 | ID | 날짜 | 영역 | 문제 | 심각도 | 상태 |
 |---|---|---|---|---|---|
-| TS-010 | 2026-08-17 | ML / Infra | GRU 학습이 `model.fit()` 진입 직후 CPU 0%·RSS 3.8MB로 65분간 정지 — 느린 게 아니라 교착. 멈춘 프로세스가 살아 있는 동안 34초에 통과하던 Keras 테스트까지 같이 멈춤 | High | **미해결 (다음 세션 이월)** |
+| TS-010 | 2026-08-17 ~ 2026-08-18 | ML / Infra | GRU 학습이 `model.fit()` 진입 직후 CPU 0%·RSS 3.8MB로 65분간 정지 — 느린 게 아니라 교착. 원인은 데이터도 스레드 수도 아니고 **pyarrow와 TensorFlow의 dylib 로드 순서**였음 | High | 해결됨 |
 | TS-009 | 2026-08-17 | Build / Test | 전처리 CLI가 `ModuleNotFoundError: No module named 'data'`로 죽음 — repo 루트의 `data/` 폴더 안에서 나는 에러라 원인이 직관과 반대였고, 테스트 53개·브라우저 검증·잔존 참조 grep이 전부 통과한 채 커밋됨 | High | 해결됨 |
 | TS-008 | 2026-08-17 | FE / 데이터 해석 | 스트라이크 존 보드가 처음부터 좌우로 뒤집혀 그려지고 있었음 — 추천 문구는 계속 맞았고 그림만 거울상이라 아무도 눈치채지 못했음 | High | 해결됨 |
 | TS-007 | 2026-08-16 | FE | "순수 이동" 리팩터링 후 `분석 실행`이 `NameError`로 전부 실패 — 바이트 동일성 검증·코드 리뷰·테스트 23개를 모두 통과했는데도 커밋 시점부터 앱의 주기능이 죽어 있었음 | Critical | 해결됨 |
@@ -37,6 +37,161 @@
 ---
 
 ## 기록
+
+## TS-010 · GRU 학습이 `model.fit()` 진입 직후 CPU 0%로 65분간 정지 — 데이터도 스레드 수도 아니고 pyarrow와 TensorFlow의 dylib 로드 순서 문제였음
+
+| | |
+|---|---|
+| **날짜** | 2026-08-17 발견 / 2026-08-18 해결 |
+| **영역** | ML / Infra |
+| **심각도** | High |
+| **상태** | 해결됨 |
+| **소요 시간** | 1일차 65분 이상 소진 후 이월. 2일차 실험 4회로 확정 |
+
+### 증상
+
+`./venv/bin/python scripts/train_seq.py`가 parquet 로딩 직후 `model.fit()`에서 멈춘다.
+**예외 없음, 로그 없음, CPU 0%.** 65분간 아무 변화가 없었다.
+
+느려서가 아니다. 같은 41만 행을 합성 numpy 배열로 만들어 넣으면 1에폭이 **4.9초**에 끝난다.
+
+`faulthandler.dump_traceback_later()`로 멈춘 지점을 떠서 얻은 스택:
+
+```
+Timeout (0:00:45)!
+Thread 0x00000001f859a240 (most recent call first):
+  File ".../tensorflow/python/eager/execute.py", line 53 in quick_execute
+  File ".../tensorflow/python/eager/context.py", line 1688 in call_function
+  File ".../polymorphic_function.py", line 1110 in _initialize_uninitialized_variables
+  ...
+  File ".../keras/src/backend/tensorflow/trainer.py", line 399 in fit
+```
+
+학습 연산이 아니라 **변수 초기화 단계의 첫 eager op**에서 블록된다. 파이썬 스레드는
+메인 하나뿐이고 CPU가 0%다 — 스핀이 아니라 C++ 런타임 안에서 락을 기다리는 상태다.
+
+### 재현 조건
+
+100% 재현. 데이터 크기와 무관하다 — **5,000행 1에폭에서도 똑같이 멈춘다.**
+
+격리 실험 4종(각각 합성 데이터로 GRU 1에폭, 40초 타임아웃):
+
+| 조건 | 결과 |
+|---|---|
+| pyarrow 전혀 안 씀 | OK 1.3초 |
+| `import pyarrow`만 (parquet은 안 읽음) | **교착** |
+| pyarrow로 parquet 읽음 | **교착** |
+| `import keras`를 먼저 한 뒤 pyarrow import | OK 2.3초 |
+
+parquet를 **읽는 행위**가 아니라 pyarrow를 TensorFlow보다 **먼저 import 하는 것**이 조건이다.
+
+### 원인
+
+**표면**: parquet를 읽고 나면 Keras 학습이 멈춘다.
+
+**근본**: `import pandas`가 pyarrow를 끌고 들어오면서 pyarrow의 dylib가 TensorFlow보다
+먼저 로드된다. 둘 다 **absl 심볼을 weak definition으로 export** 하는데, macOS dyld는
+weak 정의를 이미지 간에 하나로 합치고(coalescing) **먼저 로드된 쪽 정의가 이긴다.**
+two-level namespace는 weak 정의 합치기를 막지 못한다.
+
+```
+pyarrow/libarrow.2400.dylib          : absl 심볼 1,438개 export, WEAK_DEFINES
+tensorflow/libtensorflow_cc.2.dylib  : absl 심볼 34,862개 export, 540개 undefined
+```
+
+그 결과 TF가 자기 버전이 아닌 Arrow판 `absl::Mutex`/동기화 구현을 쓰게 되고, 첫 eager
+연산에서 **깨어나지 않는 락을 기다린다.** 예외가 없는 것도, CPU가 0%인 것도 전부
+"락 대기"이기 때문이다.
+
+버전: tensorflow 2.21.0 / keras 3.15.0 / pyarrow 24.0.0 / pandas 3.0.3 / macOS arm64.
+
+### 시도했지만 안 된 것 · 헛다리
+
+- **"데이터가 커서 느린 것"** — 1일차 초기 가설. 합성 41만 행이 4.9초에 끝나는 걸 확인하고 폐기.
+- **"pyarrow와 TF의 스레드풀(OpenMP) 충돌"** — 1일차 종료 시점의 가설이자 인계 문서에
+  적어둔 방향. **절반만 맞았다.** 충돌 주체가 스레드풀이 아니라 링커 심볼이었다.
+  이 가설에서 파생된 검증안 두 개는 원인을 못 짚는다:
+  - parquet를 별도 프로세스에서 `.npy`로 변환해 학습 프로세스에서 pyarrow를 분리 →
+    증상은 사라지지만 원인을 모른 채 파이프라인만 복잡해진다. 우회지 해결이 아니다.
+  - `OMP_NUM_THREADS=1`, `KMP_DUPLICATE_LIB_OK=TRUE` → OpenMP 문제가 아니므로 무효.
+- **`tensorflow-metal` GPU 자원 경합 의심** — 설치돼 있지 않아 즉시 폐기(CPU 전용 실행).
+- **1일차 관찰 "멈춘 프로세스가 사는 동안 다른 Keras 작업도 같이 멈춘다"** — 2일차에
+  재현·검증하지 않았다. 새로 띄운 프로세스도 pandas를 import 하므로 각자 같은 이유로
+  멈춘 것을 "전염"으로 오독했을 가능성이 크다. **확인된 사실이 아니다.**
+
+### 해결
+
+`scripts/train_seq.py`에서 keras를 pandas/pyarrow보다 먼저 import 한다. 한 줄이다.
+
+```python
+# TS-010: keras(TensorFlow)를 pandas/pyarrow보다 먼저 import 해야 한다. 순서를 바꾸지 말 것.
+import keras  # noqa: F401  (부작용을 위한 import: TF를 pyarrow보다 먼저 로드시킨다)
+
+import numpy as np
+import pandas as pd
+```
+
+#### 재발 사례 — 같은 원인이 pytest에서도 잠복해 있었다
+
+수정 후 전체 스위트를 돌리자 **10분을 넘겨도 끝나지 않았다**(이전 기록 34초). 프로세스는
+CPU 0%. 같은 교착이다.
+
+파일을 하나씩 돌리면 12개 파일 106건이 전부 통과한다. 붙여서 돌릴 때만 멈춘다:
+
+| 실행 순서 | 결과 |
+|---|---|
+| `pytest tests/test_feature_builders.py tests/test_seq_infer.py` | **교착** |
+| `pytest tests/test_seq_infer.py tests/test_feature_builders.py` | 26 passed in 4.36s |
+
+pytest는 알파벳순으로 수집하므로 `test_feature_builders`(→ pandas → pyarrow)가
+`test_seq_infer`(→ keras)보다 먼저 import 된다. 그 뒤 `model.predict()`에서 멈춘다.
+
+**이건 이번 수정으로 생긴 게 아니라 전날부터 잠복해 있던 것이다.** 두 파일 모두 전날
+존재했고, 파일 단위로 돌리면 통과하기 때문에 드러나지 않았다.
+
+`tests/conftest.py`를 신설해 막았다. pytest는 테스트 모듈보다 conftest를 먼저 import
+하므로, 여기서 keras를 잡아 두면 수집 순서와 무관하게 TF가 앞선다. TensorFlow가 없는
+배포 환경을 위해 `ImportError`는 통과시킨다.
+
+```python
+try:
+    import keras  # noqa: F401
+except ImportError:
+    pass
+```
+
+### 검증
+
+- 전체 41만 행 학습이 완주한다. **에폭당 12~15초, CPU 296%.** 65분 무변화 → 정상 동작.
+- **전체 테스트 106건이 3.55초에 통과한다.** (수정 전: 10분 초과 교착)
+- `tests/test_import_order.py` 신설. 소스의 import 순서를 AST로 정적 검사한다.
+  실제로 import 해서 확인하면 테스트 프로세스 자체가 교착하므로 정적 검사여야 한다.
+  일부러 순서를 뒤집은 파일로 테스트가 실패하는 것까지 확인했다.
+
+### 추후 관리
+
+- TF와 parquet를 같이 쓰는 스크립트를 추가하면 `tests/test_import_order.py`의
+  `TF_SCRIPTS` 목록에 넣는다. 지금은 `scripts/train_seq.py` 하나뿐이다.
+- `tests/conftest.py`의 keras import를 지우지 말 것. 쓸모없어 보이지만 전체
+  스위트를 살려두는 유일한 장치다.
+- 이 계열은 pyarrow·TF 버전이 바뀌면 조용히 재발할 수 있다. 학습이 예외 없이 멈추면
+  가장 먼저 import 순서를 의심한다.
+- 서빙 경로는 numpy 추론기(`models/seq_infer.py`)라 TF를 쓰지 않는다. 영향 없다.
+
+### 배운 점
+
+- **예외 없이 CPU 0%로 멈추면 그건 락 대기다.** 성능 문제로 접근하면 시간을 버린다.
+  `faulthandler.dump_traceback_later()`는 설치가 필요 없고 한 줄이면 되는데, 1일차에
+  이걸 안 떠서 65분을 추측으로 썼다. **추측 세 개를 순서대로 검증하기 전에 스택부터 뜬다.**
+- 격리 실험은 **2×2로 짜야 원인이 갈린다.** "pyarrow를 쓰면 멈춘다"까지는 1일차에도
+  알았지만, `import`만 하는 조건과 `read`까지 하는 조건을 나누지 않아서
+  "데이터를 읽는 게 문제"라는 틀린 방향으로 갔다.
+- **파일 단위로 통과하는 테스트 스위트는 통과한 게 아니다.** 106건이 개별로는 전부
+  녹색인데 붙이면 멈췄다. import 부작용이 있는 코드에서는 실행 단위가 곧 조건이다.
+- 가설이 절반만 맞으면 거기서 나온 해결책도 절반만 맞는다. "스레드풀 충돌"이라는
+  방향은 맞았지만 그 가설로 세운 검증안 두 개는 원인을 못 짚는 우회로였다.
+
+---
 
 ## TS-009 · 전처리 CLI가 `ModuleNotFoundError: No module named 'data'`로 죽음 — repo 루트의 `data/` 폴더 안에서 나는 에러라 원인이 직관과 반대였고, 테스트 53개·브라우저 검증·잔존 참조 grep이 전부 통과한 채 커밋됨
 

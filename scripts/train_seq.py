@@ -14,6 +14,13 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# TS-010: keras(TensorFlow)를 pandas/pyarrow보다 먼저 import 해야 한다. 순서를 바꾸지 말 것.
+# 둘 다 absl 심볼을 weak definition으로 내보내는데, dyld는 weak 정의를 이미지 간에
+# 하나로 합치고 먼저 로드된 쪽이 이긴다. pyarrow가 먼저 로드되면 TF가 Arrow판 absl
+# 뮤텍스를 쓰게 되고, 첫 eager 연산에서 깨어나지 않는 락을 기다린다 - 예외도 없고
+# CPU도 0%라 원인을 짐작하기 어렵다.
+import keras  # noqa: F401  (부작용을 위한 import: TF를 pyarrow보다 먼저 로드시킨다)
+
 import numpy as np
 import pandas as pd
 from sklearn.metrics import top_k_accuracy_score
