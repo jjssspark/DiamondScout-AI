@@ -24,6 +24,15 @@ LGBM_MODEL_FILE = "next_pitch_lgbm.txt"
 LGBM_FEATURES_FILE = "next_pitch_lgbm_features.json"
 SERVING_PRIOR_DIR = "serving_priors"
 
+# GRU 가중치. numpy 추론기(models/seq_infer.py)가 읽으므로 TensorFlow는 필요 없다.
+SEQ_MODEL_FILE = "seq_model_weights.npz"
+
+# 앙상블 가중치: p = (1-w)*LightGBM + w*GRU. val에서 고른 값이다.
+# w=0.05~0.35 구간이 전부 단독을 넘었고 0.30이 제일 좋았다. test에서 top-1 43.71 ->
+# 44.13%, top-3 85.73 -> 86.44%. 근거는 docs/PERFORMANCE.md와
+# output/metrics/ensemble_gate_2025.json.
+SEQ_ENSEMBLE_WEIGHT = 0.30
+
 # next_pitch_dataset_{year}.csv의 현재 상황 feature와 동일한 순서/이름을 따른다.
 CONTEXT_COLS = [
     "balls", "strikes", "outs_when_up", "inning", "inning_topbot_enc",
@@ -168,9 +177,12 @@ class PredictionService:
         root_dir: str = ROOT_DIR,
         load_deep_model: bool = False,
         backend: str = "lgbm",
+        ensemble: bool = True,
     ):
         self.root_dir = root_dir
         self.backend = backend
+        self.ensemble = ensemble
+        self.seq = None
         self.id_to_label = self._load_label_mapping()
         self.priors = None
 
@@ -196,6 +208,24 @@ class PredictionService:
             self.feature_cols = json.load(f)["feature_cols"]
         self.priors = PriorLookup(os.path.join(models_dir, SERVING_PRIOR_DIR))
         self.classes = np.array(self.priors.label_ids)
+        if self.ensemble:
+            self.seq = self._load_seq(os.path.join(models_dir, SEQ_MODEL_FILE))
+
+    def _load_seq(self, path: str):
+        """GRU 추론기를 로드한다. 없거나 클래스 수가 안 맞으면 단독 예측으로 돌아간다.
+
+        클래스 수를 확인하는 이유: 두 모델의 확률을 자리별로 더하므로 라벨 순서가
+        어긋나면 예외 없이 엉뚱한 구종 확률이 섞인다. 조용히 틀리느니 안 섞는 게 낫다.
+        """
+        if not os.path.exists(path):
+            return None
+
+        from models.seq_infer import SeqPredictor
+
+        predictor = SeqPredictor(path)
+        if len(predictor.dense_b) != len(self.classes):
+            return None
+        return predictor
 
     def _load_label_mapping(self) -> dict[int, str]:
         path = os.path.join(self.root_dir, "data", "processed", "pitch_label_mapping.json")
@@ -221,10 +251,27 @@ class PredictionService:
         extra.update(temporal_features(context, recent_pitches, self.priors.temporal_defaults))
         return build_feature_row(context, recent_pitches, priors=extra)
 
+    def _seq_proba(self, recent_pitches: list[dict]) -> np.ndarray:
+        """recent_pitches를 (1, 5, 9) 시퀀스로 만들어 GRU 확률을 뽑는다.
+
+        시간 순서는 오래된 것 -> 최근 순이다. recent_pitches[0]이 lag5,
+        recent_pitches[-1]이 lag1이고, 학습(scripts/train_seq.py)의 to_sequences가
+        lag5부터 쌓는 것과 같은 방향이다. 뒤집으면 예외 없이 정확도만 떨어진다.
+        """
+        seq = np.array(
+            [[[pitch[field] for field in LAG_FIELDS] for pitch in recent_pitches]],
+            dtype="float32",
+        )
+        return self.seq.predict_proba(self.seq.standardize(seq))[0]
+
     def _predict_proba(self, context: dict, recent_pitches: list[dict]) -> tuple[np.ndarray, np.ndarray]:
         x = pd.DataFrame([self._feature_row(context, recent_pitches)])[self.feature_cols]
         if self.backend == "lgbm":
-            return self.classes, self.model.predict(x, num_iteration=self.model.best_iteration)[0]
+            proba = self.model.predict(x, num_iteration=self.model.best_iteration)[0]
+            if self.seq is not None:
+                w = SEQ_ENSEMBLE_WEIGHT
+                proba = (1 - w) * proba + w * self._seq_proba(recent_pitches)
+            return self.classes, proba
         return self.model.classes_, self.model.predict_proba(x)[0]
 
     def predict_top_k(self, context: dict, recent_pitches: list[dict], k: int = 3) -> list[tuple[str, float]]:

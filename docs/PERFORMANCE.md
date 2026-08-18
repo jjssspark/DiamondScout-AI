@@ -42,7 +42,8 @@ GRU 단독은 39.0%로 LightGBM보다 4.7%p 낮다. 그런데도 섞으면 오�
 직전 5구의 궤적만 본다.
 
 - 출처: `output/metrics/ensemble_gate_2025.json`, 재현: `./venv/bin/python scripts/eval_ensemble.py`
-- **아직 서빙에 반영하지 않았다.** 위 43.25%/85.56% 서빙 수치는 LightGBM 단독 기준이다.
+- 서빙에 반영했다. `services/prediction_service.py`의 `SEQ_ENSEMBLE_WEIGHT`가 w이고,
+  GRU는 numpy 추론기로 돌아 TensorFlow 의존성이 늘지 않는다(가중치 61KB).
 
 ### 서빙 시점의 실제 정확도
 
@@ -50,8 +51,16 @@ GRU 단독은 39.0%로 LightGBM보다 4.7%p 낮다. 그런데도 섞으면 오�
 
 | 구성 | top-1 | top-3 |
 |---|---|---|
-| 전 피처 실측 | 43.71% | 85.73% |
-| **서빙 구성** | **43.25%** | **85.56%** |
+| 전 피처 실측 (LightGBM 단독) | 43.71% | 85.73% |
+| 서빙 구성 (LightGBM 단독) | 43.25% | 85.56% |
+| 서빙 구성 (LightGBM + GRU 앙상블) — 지금 쓰는 것 | 43.80% | 86.37% |
+
+앙상블 이득이 서빙에서 더 크다. 오프라인 전 피처 기준으로는 +0.42%p인데 서빙
+구성에서는 +0.55%p다(McNemar p=5.1e-09). GRU가 보는 lag 피처는 서빙에서 전부
+관측되기 때문에, 고정해 버린 세 피처 때문에 깎인 부분을 GRU가 일부 메운다.
+그래서 앙상블 서빙(43.80%)이 전 피처 실측 단독(43.71%)보다도 높게 나온다.
+
+재현: `./venv/bin/python scripts/eval_serving.py` / 출처 `output/metrics/serving_accuracy_2025.json`
 
 관측 불가 세 피처(`pitcher_pitch_count_game`, `times_through_order`, `prev_pitch_outcome_enc`)의 gain 중요도 합이 0.89%라 손실이 0.46%p에 그친다. `pitch_of_atbat`은 `balls+strikes+1`로 근사하며 실제값과 84.9% 일치한다(파울이 카운트를 올리지 않아 어긋난다).
 

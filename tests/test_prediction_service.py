@@ -197,3 +197,69 @@ class TestLgbmBackend:
         assert fresh["is_first_pitch_of_ab"] == 1
         assert deep["is_first_pitch_of_ab"] == 0
         assert deep["pitch_of_atbat"] == 4
+
+
+# --- GRU 앙상블 ----------------------------------------------------------------
+
+_SEQ_MODEL = os.path.join(ROOT, "models", "seq_model_weights.npz")
+
+pytestmark_seq = pytest.mark.skipif(
+    not (os.path.exists(_LGBM_MODEL) and os.path.exists(_SEQ_MODEL)),
+    reason="LightGBM 또는 GRU 아티팩트 없음 (scripts/train_lgbm.py, train_seq.py 필요)",
+)
+
+
+@pytestmark_seq
+class TestSeqEnsemble:
+    def test_ensemble_is_on_by_default(self):
+        assert PredictionService(backend="lgbm").seq is not None
+
+    def test_ensemble_changes_the_probabilities(self):
+        """섞이지 않으면 앙상블을 켠 의미가 없다. 값이 실제로 달라져야 한다."""
+        pitches = [_make_pitch(i) for i in range(LOOKBACK)]
+
+        solo = PredictionService(backend="lgbm", ensemble=False)
+        mixed = PredictionService(backend="lgbm", ensemble=True)
+
+        a = solo.predict_full_proba(_lgbm_context(), pitches)
+        b = mixed.predict_full_proba(_lgbm_context(), pitches)
+
+        assert set(a) == set(b)
+        assert any(abs(a[k] - b[k]) > 1e-6 for k in a)
+
+    def test_ensemble_proba_still_sums_to_one(self):
+        """두 확률분포의 가중 평균이므로 합은 1이어야 한다. 어긋나면 정렬이 깨진 것이다."""
+        service = PredictionService(backend="lgbm")
+
+        proba = service.predict_full_proba(_lgbm_context(), [_make_pitch(i) for i in range(LOOKBACK)])
+
+        assert abs(sum(proba.values()) - 1.0) < 1e-6
+
+    def test_sequence_is_ordered_oldest_first(self):
+        """recent_pitches[0]이 lag5, [-1]이 lag1이다. 뒤집으면 예외 없이 정확도만 깎인다.
+
+        서비스가 만든 시퀀스 확률이, 같은 순서로 직접 쌓아 numpy 추론기에 넣은 것과
+        일치하는지 본다.
+        """
+        from services.prediction_service import LAG_FIELDS
+
+        service = PredictionService(backend="lgbm")
+        pitches = [_make_pitch(i) for i in range(LOOKBACK)]
+
+        expected_seq = np.array(
+            [[[p[f] for f in LAG_FIELDS] for p in pitches]], dtype="float32"
+        )
+        expected = service.seq.predict_proba(service.seq.standardize(expected_seq))[0]
+
+        assert np.allclose(service._seq_proba(pitches), expected)
+        # 뒤집힌 순서와는 달라야 한다 - 아니면 이 테스트가 순서를 못 잡는다
+        reversed_seq = expected_seq[:, ::-1, :]
+        reversed_proba = service.seq.predict_proba(service.seq.standardize(reversed_seq))[0]
+        assert not np.allclose(expected, reversed_proba)
+
+    def test_falls_back_to_solo_when_weights_are_missing(self, tmp_path):
+        """배포판에 npz가 빠져도 예측은 나와야 한다. 없으면 LightGBM 단독이다."""
+        service = PredictionService(backend="lgbm", ensemble=False)
+
+        assert service.seq is None
+        assert service._load_seq(str(tmp_path / "없는파일.npz")) is None
