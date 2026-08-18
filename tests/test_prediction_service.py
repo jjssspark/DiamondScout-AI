@@ -265,3 +265,62 @@ class TestSeqEnsemble:
 
         assert service.seq is None
         assert service._load_seq(str(tmp_path / "없는파일.npz")) is None
+
+
+# --- 확률 캘리브레이션 ----------------------------------------------------------
+
+_CALIBRATION = os.path.join(ROOT, "models", "calibration.json")
+
+pytestmark_calib = pytest.mark.skipif(
+    not (os.path.exists(_LGBM_MODEL) and os.path.exists(_CALIBRATION)),
+    reason="LightGBM 또는 캘리브레이션 아티팩트 없음 (scripts/calibrate_model.py 필요)",
+)
+
+
+@pytestmark_calib
+class TestCalibration:
+    def test_temperature_is_loaded_from_artifact(self):
+        import json
+
+        with open(_CALIBRATION, encoding="utf-8") as f:
+            meta = json.load(f)
+        expected = meta["temperature"] if meta.get("applied") else 1.0
+
+        assert PredictionService(backend="lgbm").temperature == pytest.approx(expected)
+
+    def test_calibration_does_not_change_the_ranking(self):
+        """온도 스케일링은 순위를 안 바꾼다. Top-3 구종과 순서가 그대로여야 한다."""
+        pitches = [_make_pitch(i) for i in range(LOOKBACK)]
+        service = PredictionService(backend="lgbm")
+
+        calibrated = service.predict_top_k(_lgbm_context(), pitches, k=3)
+        service.temperature = 1.0
+        raw = service.predict_top_k(_lgbm_context(), pitches, k=3)
+
+        assert [label for label, _ in calibrated] == [label for label, _ in raw]
+
+    def test_calibration_actually_changes_the_numbers(self):
+        """순위는 같아도 표시하는 숫자는 달라져야 한다. 안 그러면 안 걸린 것이다."""
+        pitches = [_make_pitch(i) for i in range(LOOKBACK)]
+        service = PredictionService(backend="lgbm")
+        if service.temperature == 1.0:
+            pytest.skip("적용하지 않기로 기록된 아티팩트")
+
+        calibrated = service.predict_full_proba(_lgbm_context(), pitches)
+        service.temperature = 1.0
+        raw = service.predict_full_proba(_lgbm_context(), pitches)
+
+        assert any(abs(calibrated[k] - raw[k]) > 1e-6 for k in calibrated)
+
+    def test_calibrated_proba_still_sums_to_one(self):
+        service = PredictionService(backend="lgbm")
+
+        proba = service.predict_full_proba(_lgbm_context(), [_make_pitch(i) for i in range(LOOKBACK)])
+
+        assert abs(sum(proba.values()) - 1.0) < 1e-6
+
+    def test_missing_artifact_means_no_calibration(self, tmp_path):
+        """배포판에 파일이 빠져도 예측은 나와야 한다. 그 경우 보정 없이 간다."""
+        service = PredictionService(backend="lgbm")
+
+        assert service._load_temperature(str(tmp_path / "없는파일.json")) == 1.0

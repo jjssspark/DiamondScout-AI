@@ -1,0 +1,10 @@
+{
+  "method": "temperature_scaling",
+  "temperature": 0.95,
+  "ece_before": 0.012632031039193732,
+  "ece_after": 0.008100771685055462,
+  "applied": true,
+  "n_bins": 15,
+  "fitted_on": "val 앙상블 확률",
+  "ensemble_weight": 0.3
+}

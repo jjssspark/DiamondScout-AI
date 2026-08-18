@@ -28,6 +28,9 @@ SERVING_PRIOR_DIR = "serving_priors"
 # GRU 가중치. numpy 추론기(models/seq_infer.py)가 읽으므로 TensorFlow는 필요 없다.
 SEQ_MODEL_FILE = "seq_model_weights.npz"
 
+# 온도 스케일링 계수. models/calibration.json에 있으면 그 값을 쓴다.
+CALIBRATION_FILE = "calibration.json"
+
 # 앙상블 가중치: p = (1-w)*LightGBM + w*GRU. val에서 고른 값이다.
 # w=0.05~0.35 구간이 전부 단독을 넘었고 0.30이 제일 좋았다. test에서 top-1 43.71 ->
 # 44.13%, top-3 85.73 -> 86.44%. 근거는 docs/PERFORMANCE.md와
@@ -184,6 +187,7 @@ class PredictionService:
         self.backend = backend
         self.ensemble = ensemble
         self.seq = None
+        self.temperature = 1.0
         self.id_to_label = self._load_label_mapping()
         self.priors = None
 
@@ -215,6 +219,19 @@ class PredictionService:
         self.classes = np.array(self.priors.label_ids)
         if self.ensemble:
             self.seq = self._load_seq(os.path.join(models_dir, SEQ_MODEL_FILE))
+        self.temperature = self._load_temperature(os.path.join(models_dir, CALIBRATION_FILE))
+
+    def _load_temperature(self, path: str) -> float:
+        """온도 스케일링 계수를 읽는다. 없으면 1.0(아무것도 안 함)이다.
+
+        화면에 확률을 그대로 띄우므로 "31.7%"가 실제 빈도와 맞아야 한다. 순위를
+        바꾸지 않으므로 Top-3 목록과 순서는 그대로고 숫자만 조정된다.
+        """
+        if not os.path.exists(path):
+            return 1.0
+        with open(path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        return float(meta["temperature"]) if meta.get("applied") else 1.0
 
     def _load_seq(self, path: str):
         """GRU 추론기를 로드한다. 없거나 클래스 수가 안 맞으면 단독 예측으로 돌아간다.
@@ -276,6 +293,11 @@ class PredictionService:
             if self.seq is not None:
                 w = SEQ_ENSEMBLE_WEIGHT
                 proba = (1 - w) * proba + w * self._seq_proba(recent_pitches)
+            if self.temperature != 1.0:
+                # 앙상블을 섞은 뒤에 건다. 캘리브레이션을 앙상블 확률로 적합했다.
+                from models.calibration import apply_temperature
+
+                proba = apply_temperature(proba[None, :], self.temperature)[0]
             return self.classes, proba
         return self.model.classes_, self.model.predict_proba(x)[0]
 

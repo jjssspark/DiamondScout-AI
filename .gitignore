@@ -26,6 +26,9 @@ build/
 # 산출물
 output/*
 !output/screenshots/
+# 지표 산출물은 문서가 출처로 인용한다. 저장소에 없으면 수치를 확인할 방법이 없다.
+# 전부 합쳐 수백 KB라 히스토리에 남겨도 부담이 없다.
+!output/metrics/
 # 목업은 UI 승인 근거라 히스토리에 남긴다. 마젠타 원본(장당 1.2~1.5MB)은 제외하고
 # 크로마키 처리된 cut-*.png만 포함.
 !output/mockups/
