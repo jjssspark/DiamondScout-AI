@@ -8,7 +8,17 @@
 (function () {
   "use strict";
 
-  function $(id) { return document.getElementById(id); }
+  /* 씬이 투수 탭과 타자 탭에 한 벌씩 있다. 같은 id가 둘이라 getElementById는 항상
+     앞의 것만 준다 - 그러면 타자 탭에서는 안 보이는 캔버스에 그리게 된다.
+     지금 화면에 보이는 쪽을 골라준다. 탭을 바꾸면 mount()의 canvas 비교가 걸려
+     새 엘리먼트로 다시 잡는다. */
+  function $(id) {
+    var list = document.querySelectorAll('[id="' + id + '"]');
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].getBoundingClientRect().width > 0) { return list[i]; }
+    }
+    return list.length ? list[0] : null;
+  }
 
   /* 표시용 상태. 목업에서는 이 객체가 조작의 주인이었지만 앱에서는 사본이다. */
   var S = { mode: "pitcher", bats: "L" };
@@ -765,6 +775,8 @@
   window.dsScene = {
     mount: mount,
     update: update,
+    /* DOM에서 씬을 다른 자리로 옮긴 뒤 부른다. mount는 여러 번 불러도 안전하다. */
+    refresh: function () { bootstrap(60); },
     play: function () { if (mounted) { playPitch(); } },
     selfCheck: function () {
       return {

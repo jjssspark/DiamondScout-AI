@@ -886,7 +886,13 @@ def _step_next(current_step: int):
 # 씬 엔진은 head=로 넣는다. gr.HTML 안의 <script>는 innerHTML 경로라 실행이 보장되지 않는다.
 gr.set_static_paths(paths=[Path(__file__).resolve().parent / "ui" / "static" / "assets"])
 SCENE_HEAD = f"<script>{scene_engine_js()}</script>"
+# 씬 엔진이 고정 엘리먼트 ID를 써서 탭마다 한 벌씩 둘 수 없다. 그래서 씬 블록은 탭
+# 밖에 하나만 두고, 갱신할 때 지금 보이는 탭의 슬롯으로 DOM 노드를 옮긴다. 그래야
+# 분석 결과 바로 아래에 존이 나온다 - 탭 밖에 그대로 두면 Q&A 섹션까지 지나 맨 아래에 붙는다.
 _SCENE_UPDATE_JS = "(v) => { if (v && window.dsScene) { window.dsScene.update(JSON.parse(v)); } }"
+# 결과 영역(board group)은 분석 출력보다 뒤에 보이게 된다. change 시점에는 씬이 아직
+# 숨어 있어 그려지지 않으므로, 영역이 나타난 뒤에 한 번 더 그린다.
+_SCENE_REFRESH_JS = "() => { if (window.dsScene) { window.dsScene.refresh(); } }"
 
 
 def _empty_scene_payload(mode: str) -> str:
@@ -926,9 +932,9 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS, head=SCENE_HEAD) as demo
 
     # 스트라이크 존 씬. 투수/타자 탭이 같은 캔버스를 함께 쓴다. 씬 엔진이 고정
     # 엘리먼트 ID를 쓰기 때문에 탭마다 한 벌씩 두면 서로를 덮어쓴다.
+    # 씬 마크업은 탭마다 한 벌씩 있고(같은 id가 둘), 엔진이 화면에 보이는 쪽을 골라
+    # 그린다(ui/static/scene.js의 $ 참고). 여기는 페이로드를 실어 보내는 통로만 둔다.
     with gr.Group(visible=False, elem_classes=["ds-scene-group"]) as scene_group:
-        gr.Markdown("#### STRIKE ZONE BOARD", elem_classes=["ds-board-section-title"])
-        gr.HTML(render_scene_canvas())
         scene_payload = gr.Textbox(
             value=_empty_scene_payload("pitcher"), visible=False, elem_id="scenePayload",
         )
@@ -1031,6 +1037,9 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS, head=SCENE_HEAD) as demo
                         gr.Markdown("#### 상대 타자 약점")
                         p_batter_weakness_output = gr.HTML()
 
+                gr.Markdown("#### STRIKE ZONE BOARD", elem_classes=["ds-board-section-title"])
+                gr.HTML(render_scene_canvas())
+
                 with gr.Accordion("상세 리포트 전체 보기 (근거 · 참고 데이터)", open=False, elem_classes=["ds-report-accordion"]):
                     p_report_output = gr.Markdown(elem_classes=["ds-report-md"])
                 p_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
@@ -1066,7 +1075,7 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS, head=SCENE_HEAD) as demo
                 fn=lambda: gr.Group(visible=True), outputs=[p_board_group],
             ).then(
                 fn=lambda: gr.Group(visible=True), outputs=[p_qa_group],
-            )
+            ).then(None, None, None, js=_SCENE_REFRESH_JS)
             p_pdf_btn.click(
                 fn=generate_pdf, inputs=[p_result_state], outputs=[p_pdf_file_output],
             ).then(
@@ -1186,6 +1195,9 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS, head=SCENE_HEAD) as demo
                         gr.Markdown("#### 상대 투수 패턴")
                         b_pitcher_pattern_output = gr.HTML()
 
+                gr.Markdown("#### STRIKE ZONE BOARD", elem_classes=["ds-board-section-title"])
+                gr.HTML(render_scene_canvas())
+
                 with gr.Accordion("상세 리포트 전체 보기 (근거 · 참고 데이터)", open=False, elem_classes=["ds-report-accordion"]):
                     b_report_output = gr.Markdown(elem_classes=["ds-report-md"])
                 b_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
@@ -1219,7 +1231,7 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS, head=SCENE_HEAD) as demo
                 fn=lambda: gr.Group(visible=True), outputs=[b_board_group],
             ).then(
                 fn=lambda: gr.Group(visible=True), outputs=[b_qa_group],
-            )
+            ).then(None, None, None, js=_SCENE_REFRESH_JS)
             b_pdf_btn.click(
                 fn=generate_pdf, inputs=[b_result_state], outputs=[b_pdf_file_output],
             ).then(
