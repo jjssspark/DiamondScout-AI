@@ -150,6 +150,42 @@ prior가 모델의 대부분을 지고 있어서, 서빙 prior 테이블이 학�
 
 조치는 하지 않았다. 근거 없이 가중치를 바꾸면 검증되지 않은 동작 변경이 된다. 재현 스크립트는 커밋하지 않았고, 재측정이 필요하면 위 절차(4,000구 추출 → `_score_batter_expected_pitch` 호출 → 대조)를 그대로 다시 수행한다.
 
+## 배포 구성 (Render 무료 티어, 512MB)
+
+2티어 아티팩트를 없앴다. 예전에는 원본 RandomForest가 188MB라 38MB로 축소한 배포
+전용 joblib을 따로 만들고 `PITCH_MODEL_FILE` 환경변수로 갈아 끼웠다. LightGBM으로
+넘어오면서 모델이 9.9MB가 돼 그럴 이유가 사라졌다.
+
+| 아티팩트 | 크기 |
+|---|---|
+| `models/next_pitch_lgbm.txt` | 9.89MB |
+| `models/seq_model_weights.npz` (GRU) | 61KB |
+| `models/serving_priors/` (CSV 4개 + JSON 2개) | 2.2MB |
+| 합계 | 약 12MB |
+
+지운 것: `scripts/train_deploy_model.py`, `models/next_pitch_model_deploy.joblib`(38MB),
+`render.yaml`의 `PITCH_MODEL_FILE`. 서빙이 이미 LightGBM이라 그 38MB는 클론만 되고
+로드된 적이 없었다.
+
+배포 의존성에서 `scikit-learn`과 `joblib`도 뺐다. RandomForest 아티팩트를 언피클할
+때만 필요했는데 추론 경로에서 빠졌기 때문이다. `backend="rf"`는 로컬 비교용으로
+남기고 joblib을 그 분기 안에서 지연 import 한다. `scipy`는 따로 적지 않아도 된다 -
+lightgbm이 자기 의존성으로 끌고 온다.
+
+실측이다. sklearn, joblib, tensorflow, torch, faiss, sentence_transformers를 전부
+차단한 상태에서 잰 값이라 배포 환경과 같은 조건이다.
+
+| | 값 |
+|---|---|
+| PredictionService 로드 | 0.80초 |
+| 예측 1회 (콜드) | 5.26ms |
+| PredictionService 최대 메모리 | 155MB |
+| app.py 전체 로드 | 3.26초 |
+| app.py 전체 최대 메모리 | 349MB |
+
+349MB면 512MB 티어에서 160MB 정도 여유가 남는다. RAG는 배포에서 `faiss`가 없어
+`rag_service=None`으로 degrade 하는 것까지 확인했다.
+
 ## 다음 구종 예측 응답 시간 (로컬 측정)
 
 측정 방법: `PredictionService`를 직접 호출해 동일 입력으로 20회 반복 추론(`predict_top_k`, k=3), `time.perf_counter()`로 측정. 환경: 로컬 macOS.

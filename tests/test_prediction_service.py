@@ -71,7 +71,9 @@ class TestPredictTopK:
             '{"id_to_label": {"0": "FF", "1": "SL", "2": "CU"}}'
         )
 
-        with patch("services.prediction_service.joblib.load") as mock_joblib_load, \
+        # joblib은 rf 분기 안에서 지연 import 한다(배포 의존성에서 빼려고).
+        # 모듈 속성이 아니라 joblib 쪽을 직접 패치해야 잡힌다.
+        with patch("joblib.load") as mock_joblib_load, \
              patch("builtins.open", mock_open(read_data=label_json)):
             mock_joblib_load.return_value = {
                 "model": mock_rf_model,

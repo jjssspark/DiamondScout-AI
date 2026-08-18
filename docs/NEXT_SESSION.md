@@ -17,10 +17,10 @@
 | 7 GRU | 완료 — TS-010 해결 후 학습 완주 | `c6b0c75` |
 | 8 앙상블 (게이트) | 완료 — 게이트 통과 | `923cf47` |
 | — 앙상블 서빙 반영 | 완료 — 서빙 top-1 43.26 → 43.84% | `1cc196b` |
-| — 타자 피처 누수 수정 | 완료 — train 경기만 집계 | (미커밋) |
+| — 타자 피처 누수 수정 | 완료 — train 경기만 집계 | `020f203` |
 | — 타자 x 구종 피처 측정 | 완료 — 이득 없어 미채택 | `969877f` |
 | 9 확률 캘리브레이션 | 미착수 | |
-| 11 배포 아티팩트 + Render 검증 | 미착수 | |
+| 11 배포 아티팩트 + Render 검증 | 코드·검증 완료 / 실제 배포 확인 남음 | (미커밋) |
 | 12 문서 + ADR-0003 | 미착수 | |
 
 테스트 53 → 111건 (전체 스위트 2초 통과).
@@ -135,6 +135,31 @@ train으로 걸렀지 비율 자체에 val/test 경기가 들어갔다. 오늘 �
 
 `build_batter_matchup_features`가 이제 프로파일이 아니라 이벤트 표를 받는다.
 `batter_matchup_profile`은 scouting_service의 화면 표시용으로만 남는다.
+
+## 완료: Task 11 배포 아티팩트 정리
+
+2티어 아티팩트를 없앴다. LightGBM이 9.89MB라 축소판을 따로 둘 이유가 없어졌다.
+
+지운 것: `scripts/train_deploy_model.py`, `models/next_pitch_model_deploy.joblib`(38MB),
+`render.yaml`의 `PITCH_MODEL_FILE`. 서빙이 이미 LightGBM이라 그 38MB는 클론만 되고
+로드된 적이 없었다.
+
+배포 의존성에서 `scikit-learn`과 `joblib`을 뺐다. RandomForest를 언피클할 때만
+필요했는데 추론 경로에서 빠졌다. `backend="rf"`는 로컬 비교용으로 남기고 joblib을
+그 분기 안에서 지연 import 한다. `scipy`는 lightgbm이 자기 의존성으로 끌고 온다.
+
+배포 의존성만 남기고(sklearn·joblib·TF·torch·faiss 차단) 실측한 값이다.
+
+| | 값 |
+|---|---|
+| PredictionService 로드 / 메모리 | 0.80초 / 155MB |
+| app.py 전체 로드 / 메모리 | 3.26초 / 349MB |
+
+512MB 티어에서 160MB 정도 여유가 남는다. RAG가 `rag_service=None`으로 degrade 하는
+것까지 확인했다.
+
+남은 것은 Step 5 하나다. 실제 Render에 올려서 OOM 없이 분석 1회가 되는지 봐야 한다.
+이 브랜치는 아직 main에 머지하지 않았고 Render는 main에서 배포한다.
 
 ## 남은 후보 (목표 47%까지 3.2%p)
 

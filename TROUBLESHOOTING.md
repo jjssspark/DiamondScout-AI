@@ -519,7 +519,9 @@ Static Spaces are free for everyone, but hosting Gradio and Docker Spaces on fre
    | 공격적 | 60 / 12 / 150 | 13.5MB | 38.65% | 76.14% |
    | 최대 | 40 / 10 / 300 | 3.8MB | 38.08% | 74.40% |
 
-   원본 모델은 그대로 두고 배포 전용 아티팩트만 따로 만들어(`scripts/train_deploy_model.py`), 문서에 기재된 대표 성능 수치는 원본 기준으로 유지했다. `PITCH_MODEL_FILE` 환경변수로 로드 대상을 선택한다.
+   원본 모델은 그대로 두고 배포 전용 아티팩트만 따로 만들어(`scripts/train_deploy_model.py`), 문서에 기재된 대표 성능 수치는 원본 기준으로 유지했다. `PITCH_MODEL_FILE` 환경변수로 로드 대상을 선택했다.
+
+   (2026-08-18 후속) 서빙이 LightGBM으로 넘어가면서 이 2티어 구조는 없앴다. 모델이 9.9MB라 축소판을 따로 둘 이유가 사라졌다. `scripts/train_deploy_model.py`, `models/next_pitch_model_deploy.joblib`, `PITCH_MODEL_FILE` 환경변수를 전부 지웠다.
 3. 포트 바인딩 — `app.py`가 `PORT` 환경변수를 읽도록 변경(Render가 주입).
 
 ### 검증

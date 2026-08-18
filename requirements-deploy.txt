@@ -7,11 +7,12 @@
 #   - faiss-cpu/sentence-transformers: RAG 검색 결과는 QA 로그 저장에만 쓰이고 답변
 #     생성에는 들어가지 않는다. 빠지면 app.py가 rag_service=None으로 정상 degrade 한다.
 #   - pybaseball: Statcast 원본 수집 스크립트에서만 쓰인다.
-# scikit-learn은 모델을 직렬화한 버전과 반드시 일치해야 한다.
+#   - scikit-learn/joblib: RandomForest 아티팩트를 언피클할 때만 필요했다. 서빙이
+#     LightGBM으로 넘어가면서 추론 경로에서 빠졌다. backend="rf"는 로컬 비교용으로만
+#     남아 있고 joblib을 그 분기 안에서 지연 import 한다.
+# scipy는 여기 없어도 된다. lightgbm이 자기 의존성으로 끌고 온다(narwhals, numpy, scipy).
 gradio==6.19.0
-scikit-learn==1.9.0
 lightgbm==4.7.0
-joblib==1.5.3
 numpy==2.5.0
 pandas==3.0.3
 matplotlib==3.11.0

@@ -1,7 +1,10 @@
 """
 DiamondScout AI - 예측 서비스
-LightGBM(models/next_pitch_lgbm.txt)을 로드해 다음 구종 Top-k를 예측한다.
-backend="rf"를 주면 기존 RandomForest(models/next_pitch_model.joblib) 경로로 돌아간다.
+LightGBM(models/next_pitch_lgbm.txt)에 GRU(models/seq_model_weights.npz)를 섞어
+다음 구종 Top-k를 예측한다.
+
+backend="rf"는 기존 RandomForest 경로다. 로컬 비교용으로만 남아 있다 -
+models/next_pitch_model.joblib은 188MB라 저장소에 없고, 쓰려면 직접 학습해야 한다.
 
 딥러닝 모델(models/deep_next_pitch_model.keras)은 TensorFlow가 무거운 의존성이므로
 기본적으로는 로드하지 않고, load_deep_model=True일 때만 선택적으로 로드하는 구조만 준비한다.
@@ -10,15 +13,13 @@ backend="rf"를 주면 기존 RandomForest(models/next_pitch_model.joblib) 경�
 import json
 import os
 
-import joblib
 import numpy as np
 import pandas as pd
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# 무료 티어(512MB) 배포판은 축소 학습한 next_pitch_model_deploy.joblib을 쓴다.
-# 번들 스키마가 같아 파일명만 바꿔 끼우면 되므로 환경변수로 선택한다(scripts/train_deploy_model.py).
-PITCH_MODEL_FILE = os.environ.get("PITCH_MODEL_FILE", "next_pitch_model.joblib")
+# RandomForest 비교용 아티팩트. 저장소에 없다(188MB, gitignore).
+RF_MODEL_FILE = "next_pitch_model.joblib"
 
 LGBM_MODEL_FILE = "next_pitch_lgbm.txt"
 LGBM_FEATURES_FILE = "next_pitch_lgbm_features.json"
@@ -189,7 +190,11 @@ class PredictionService:
         if backend == "lgbm":
             self._load_lgbm()
         elif backend == "rf":
-            rf_bundle = joblib.load(os.path.join(root_dir, "models", PITCH_MODEL_FILE))
+            # joblib은 이 경로에서만 필요하다. 최상단에서 import 하면 배포 의존성에
+            # 안 쓰는 패키지가 하나 늘어난다.
+            import joblib
+
+            rf_bundle = joblib.load(os.path.join(root_dir, "models", RF_MODEL_FILE))
             self.model = rf_bundle["model"]
             self.feature_cols = rf_bundle["feature_cols"]
         else:
