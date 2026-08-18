@@ -10,10 +10,6 @@ MAX_BALLS = 3
 MAX_STRIKES = 2
 MAX_OUTS = 2
 
-# 단계 흐름. 한 화면에 다 펼치면 밀도가 높아 어디부터 봐야 할지 모르겠다는
-# 피드백을 받아 세 단계로 나눴다. 컴포넌트는 그대로 두고 보이는 범위만 나눈다.
-STEP_LABELS = ["매치업", "상황", "결과"]
-
 
 def cycle_value(current: int, maximum: int) -> int:
     """최대치에서 한 번 더 누르면 0으로 돌아간다 — 잘못 눌러도 되돌릴 수 있어야 한다."""
@@ -93,37 +89,4 @@ def render_player_card(name: str, hand: str, subtitle: str, gauges: list[tuple[s
   <div class="ds-player-meta">{hand_safe} · {subtitle_safe}</div>
   <div class="ds-player-gauges">{bars}</div>
 </div>
-""".strip()
-
-
-def clamp_step(step: int, delta: int = 0) -> int:
-    """단계를 1~len(STEP_LABELS) 안으로 가둔다.
-
-    범위를 넘으면 예외 대신 끝에서 멈춘다. 첫 단계에서 이전을 눌러도 앱이 죽으면 안 된다.
-    """
-    return max(1, min(len(STEP_LABELS), step + delta))
-
-
-def step_visibility(step: int) -> list[bool]:
-    """단계별로 어느 블록이 보이는지. 길이는 STEP_LABELS와 같다."""
-    current = clamp_step(step)
-    return [i + 1 == current for i in range(len(STEP_LABELS))]
-
-
-def render_step_bar(step: int) -> str:
-    """상단 단계 표시. 지난 단계 / 지금 단계 / 남은 단계를 구분해 그린다."""
-    current = clamp_step(step)
-    dots = []
-    for i, label in enumerate(STEP_LABELS, start=1):
-        state = "done" if i < current else "now" if i == current else "next"
-        dots.append(
-            f'<li class="ds-stepdot ds-stepdot--{state}"'
-            f' aria-current="{"step" if i == current else "false"}">'
-            f'<span class="ds-stepdot__no">{i}</span>'
-            f'<span class="ds-stepdot__label">{html.escape(label)}</span></li>'
-        )
-    return f"""
-<nav class="ds-stepbar" aria-label="진행 단계">
-  <ol class="ds-stepbar__list">{"".join(dots)}</ol>
-</nav>
 """.strip()
