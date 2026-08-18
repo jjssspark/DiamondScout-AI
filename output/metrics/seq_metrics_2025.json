@@ -1,0 +1,18 @@
+{
+  "seq_len": 5,
+  "n_features": 9,
+  "units": 64,
+  "train_seconds": 323.264647792,
+  "model_size_mb": 0.05944252014160156,
+  "evaluated_with": "numpy SeqPredictor (서빙 경로)",
+  "validation": {
+    "top1_accuracy": 0.3834264825164724,
+    "top3_accuracy": 0.783508705652285,
+    "n_samples": 89999
+  },
+  "test": {
+    "top1_accuracy": 0.3901868896306036,
+    "top3_accuracy": 0.7936122630165312,
+    "n_samples": 88983
+  }
+}

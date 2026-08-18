@@ -1,0 +1,85 @@
+{
+  "base": {
+    "n_features": 88,
+    "best_iteration": 89,
+    "train_seconds": 80.77200700000049,
+    "val": {
+      "top1": 0.4401937799308881,
+      "top3": 0.8606873409704552
+    },
+    "test": {
+      "top1": 0.4371172021622108,
+      "top3": 0.8572648708180214
+    }
+  },
+  "whiff_only_11": {
+    "n_features": 99,
+    "best_iteration": 85,
+    "train_seconds": 48.64532879199942,
+    "val": {
+      "top1": 0.4399826664740719,
+      "top3": 0.8610762341803798
+    },
+    "test": {
+      "top1": 0.4360271063012036,
+      "top3": 0.8568153467516267
+    }
+  },
+  "with_batter_pitch": {
+    "n_features": 121,
+    "best_iteration": 85,
+    "train_seconds": 54.44805895799982,
+    "val": {
+      "top1": 0.43956043956043955,
+      "top3": 0.8605762286247625
+    },
+    "test": {
+      "top1": 0.4350156771518155,
+      "top3": 0.856702965735028
+    },
+    "batter_pitch_gain_share": 0.04989985662368778,
+    "top5_gain": [
+      {
+        "feature": "count_prior_5",
+        "gain": 499247.65735261113
+      },
+      {
+        "feature": "count_prior_1",
+        "gain": 492889.345873977
+      },
+      {
+        "feature": "count_prior_4",
+        "gain": 479284.7053683584
+      },
+      {
+        "feature": "count_prior_0",
+        "gain": 451254.60095207463
+      },
+      {
+        "feature": "count_prior_2",
+        "gain": 446933.2662752431
+      }
+    ]
+  },
+  "comparisons": {
+    "whiff_only_11": {
+      "delta_test_top1": -0.0010900958610071676,
+      "mcnemar_test": {
+        "only_base": 2969,
+        "only_new": 2872,
+        "chi2": 1.5778120184899846,
+        "p_value": 0.20907613625676688
+      }
+    },
+    "with_batter_pitch": {
+      "delta_test_top1": -0.0021015250103952887,
+      "mcnemar_test": {
+        "only_base": 3463,
+        "only_new": 3276,
+        "chi2": 5.133699361923134,
+        "p_value": 0.02346566282553596
+      }
+    }
+  },
+  "verdict": "미채택"
+}
