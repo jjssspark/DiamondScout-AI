@@ -35,11 +35,15 @@ from ui.console import (
     MAX_BALLS,
     MAX_OUTS,
     MAX_STRIKES,
+    STEP_LABELS,
+    clamp_step,
     cycle_value,
     render_base_diamond,
     render_count_lamps,
     render_player_card,
     render_scoreboard,
+    render_step_bar,
+    step_visibility,
     toggle_base,
 )
 from ui.result_panel import (
@@ -837,6 +841,9 @@ def _compose_result_html(meta: dict, hero_html: str, top3_html: str, risk_html: 
 
 # 페이로드가 엔진으로 들어가는 유일한 통로. change와 load 두 곳에서 같은 것을 쓴다.
 _SCENE_UPDATE_JS = "(v) => { if (v && window.dsScene) { window.dsScene.update(JSON.parse(v)); } }"
+# 결과 단계는 처음에 DOM에 없다. 그 단계로 넘어온 뒤에 씬을 다시 잡아야 존과
+# 코스 버튼이 그려진다. mount는 여러 번 불러도 안전하다.
+_SCENE_REFRESH_JS = "() => { if (window.dsScene) { window.dsScene.refresh(); } }"
 
 
 def _empty_scene_payload(mode: str) -> str:
@@ -867,7 +874,7 @@ HEADER_HTML = """
     <span class="ds-brand__word">DiamondScout</span>
     <span class="ds-brand__sub">덕아웃 콘솔</span>
   </div>
-  <div class="ds-top__note">다음 구종 예측 · 위험도 · 상대 분석을 한 화면에서 확인합니다</div>
+  <div class="ds-top__note">매치업 · 상황 · 결과 세 단계로 다음 구종을 예측합니다</div>
 </header>
 """
 
@@ -965,39 +972,31 @@ with gr.Blocks(title="DiamondScout AI") as demo:
     them_state = gr.State(0)
     result_state = gr.State(None)
 
+    # 한 화면에 다 펼치니 밀도가 높다는 피드백을 받아 세 단계로 나눈다. 컴포넌트는
+    # 그대로 두고 보이는 범위만 나눈다 - 값은 계속 state가 들고 있으므로 단계를
+    # 오가도 입력이 날아가지 않는다.
+    step_state = gr.State(1)
+    step_bar = gr.HTML(render_step_bar(1))
+
     with gr.Row(elem_classes=["ds-console"]):
         # ------------------------------------------------------------------
-        # 좌 · 매치업
+        # STEP 1 · 매치업
         # ------------------------------------------------------------------
-        with gr.Column(scale=3, elem_classes=["ds-col-matchup"]):
+        with gr.Column(elem_classes=["ds-stage"], visible=True) as stage_matchup:
+            mode_input = gr.Radio(
+                MODE_CHOICES, value="pitcher", label="시점 모드", elem_classes=["ds-seg", "ds-seg--wide"],
+            )
             with gr.Column(elem_classes=["ds-card"]):
                 gr.HTML('<div class="ds-card__title">매치업</div>')
                 pitcher_id_input = gr.Dropdown(choices=DEMO_PITCHER_CHOICES, value=DEFAULT_PITCHER_ID, label="투수")
                 batter_id_input = gr.Dropdown(choices=DEMO_BATTER_CHOICES, value=DEFAULT_BATTER_ID, label="타자")
                 matchup_html = gr.HTML(render_matchup_column("pitcher", DEFAULT_PITCHER_ID, DEFAULT_BATTER_ID))
                 comment_input = gr.Textbox(value=DEFAULT_COMMENT_PITCHER, label="작전 지시 (전략 의도)", lines=2)
-                analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn", "ds-btn--primary"])
-                status_output = gr.HTML()
 
         # ------------------------------------------------------------------
-        # 중 · 스트라이크 존 + 상황 조작
+        # STEP 2 · 상황
         # ------------------------------------------------------------------
-        with gr.Column(scale=5, elem_classes=["ds-col-zone"]):
-            mode_input = gr.Radio(
-                MODE_CHOICES, value="pitcher", label="시점 모드", elem_classes=["ds-seg", "ds-seg--wide"],
-            )
-            gr.HTML(render_scene_canvas())
-            # 씬은 캔버스라 Gradio가 값으로 다시 그릴 수 없다. Python이 만든 페이로드를
-            # 숨긴 텍스트박스에 실어 보내고, 그 change가 JS 엔진을 깨우는 구조다.
-            # 값의 진실 공급원은 계속 Python이고 JS는 표시만 한다(Task 4의 상태 규약과 같다).
-            scene_payload = gr.Textbox(
-                value=_empty_scene_payload("pitcher"), visible=False, elem_id="scenePayload",
-            )
-            scene_payload.change(None, scene_payload, None, js=_SCENE_UPDATE_JS)
-            # change는 초기값으로는 안 터진다. load를 걸어주지 않으면 분석 전까지 캔버스가
-            # 빈 사각형으로 남는다(엔진은 update가 와야 처음 그린다).
-            demo.load(None, scene_payload, None, js=_SCENE_UPDATE_JS)
-
+        with gr.Column(elem_classes=["ds-stage"], visible=False) as stage_situation:
             with gr.Column(elem_classes=["ds-card", "ds-ctrl-card"]):
                 gr.HTML('<div class="ds-card__title">상황 조작</div>')
 
@@ -1031,13 +1030,35 @@ with gr.Blocks(title="DiamondScout AI") as demo:
                     them_minus_btn = gr.Button("상대 −", elem_classes=["ds-btn", "ds-btn--ghost", "ds-step-btn"])
                     them_plus_btn = gr.Button("상대 +", elem_classes=["ds-btn", "ds-btn--ghost", "ds-step-btn"])
 
+            analyze_btn = gr.Button("분석 실행", variant="primary", elem_classes=["ds-btn", "ds-btn--primary"])
+            status_output = gr.HTML()
+
         # ------------------------------------------------------------------
-        # 우 · 결과
+        # STEP 3 · 결과
         # ------------------------------------------------------------------
-        with gr.Column(scale=4, elem_classes=["ds-col-result"]):
+        with gr.Column(elem_classes=["ds-stage"], visible=False) as stage_result:
+            gr.HTML(render_scene_canvas())
+            # 씬은 캔버스라 Gradio가 값으로 다시 그릴 수 없다. Python이 만든 페이로드를
+            # 숨긴 텍스트박스에 실어 보내고, 그 change가 JS 엔진을 깨우는 구조다.
+            # 값의 진실 공급원은 계속 Python이고 JS는 표시만 한다(Task 4의 상태 규약과 같다).
+            scene_payload = gr.Textbox(
+                value=_empty_scene_payload("pitcher"), visible=False, elem_id="scenePayload",
+            )
+            scene_payload.change(None, scene_payload, None, js=_SCENE_UPDATE_JS)
+            # change는 초기값으로는 안 터진다. load를 걸어주지 않으면 분석 전까지 캔버스가
+            # 빈 사각형으로 남는다(엔진은 update가 와야 처음 그린다).
+            demo.load(None, scene_payload, None, js=_SCENE_UPDATE_JS)
+
             with gr.Column(elem_classes=["ds-card", "ds-result"]):
                 gr.HTML('<div class="ds-card__title">추천 결과</div>')
                 result_html = gr.HTML(RESULT_EMPTY_HTML)
+
+    with gr.Row(elem_classes=["ds-stepnav"]):
+        # 숨기지 않고 비활성으로 둔다. visible을 토글하면 Gradio가 컴포넌트를 다시
+        # 동기화할 때 step_state와 어긋나 엉뚱한 버튼이 보이는 일이 있었다. 비활성은
+        # 어긋나도 자리가 안 흔들리고, clamp_step이 범위를 막아 눌려도 해가 없다.
+        prev_btn = gr.Button("이전", elem_classes=["ds-btn", "ds-btn--ghost"], interactive=False)
+        next_btn = gr.Button("다음", elem_classes=["ds-btn", "ds-btn--primary"], interactive=True)
 
     with gr.Accordion("코칭 리포트", open=False, elem_classes=["ds-report-accordion"]):
         report_md = gr.Markdown(elem_classes=["ds-report-md"])
@@ -1096,6 +1117,38 @@ with gr.Blocks(title="DiamondScout AI") as demo:
         outputs=[matchup_html, scene_payload, result_html, report_md, result_state, status_output, comment_input],
     )
 
+    # ------------------------------------------------------------------
+    # 단계 이동
+    # ------------------------------------------------------------------
+    _STAGE_OUTPUTS = [
+        step_state, step_bar, stage_matchup, stage_situation, stage_result, prev_btn, next_btn,
+    ]
+
+    def _goto_step(step: int, delta: int = 0, absolute: int | None = None):
+        """단계를 옮기고 화면 표시를 한 번에 맞춘다.
+
+        absolute를 주면 그 단계로 바로 간다(분석 실행 -> 결과). 아니면 delta만큼 움직인다.
+        clamp_step이 범위를 가두므로 끝에서 더 눌러도 죽지 않는다.
+        """
+        target = clamp_step(absolute if absolute is not None else step, 0 if absolute else delta)
+        flags = step_visibility(target)
+        return (
+            target,
+            render_step_bar(target),
+            gr.update(visible=flags[0]),
+            gr.update(visible=flags[1]),
+            gr.update(visible=flags[2]),
+            gr.update(interactive=target > 1),
+            gr.update(interactive=target < len(STEP_LABELS)),
+        )
+
+    next_btn.click(
+        fn=lambda s: _goto_step(s, +1), inputs=[step_state], outputs=_STAGE_OUTPUTS,
+    ).then(None, None, None, js=_SCENE_REFRESH_JS)
+    prev_btn.click(
+        fn=lambda s: _goto_step(s, -1), inputs=[step_state], outputs=_STAGE_OUTPUTS,
+    ).then(None, None, None, js=_SCENE_REFRESH_JS)
+
     analyze_btn.click(
         fn=lambda: render_analysis_status(done=False), outputs=[status_output],
     ).then(
@@ -1105,7 +1158,11 @@ with gr.Blocks(title="DiamondScout AI") as demo:
             inning_state, topbot_input, bases_state, us_state, them_state, comment_input,
         ],
         outputs=[matchup_html, scene_payload, result_html, report_md, result_state, status_output],
-    )
+    ).then(
+        # 분석이 끝나면 결과 단계로 넘긴다. 결과가 다른 단계에 있으면 눌러도 아무 일이
+        # 없는 것처럼 보인다.
+        fn=lambda: _goto_step(0, absolute=len(STEP_LABELS)), outputs=_STAGE_OUTPUTS,
+    ).then(None, None, None, js=_SCENE_REFRESH_JS)
 
     pdf_btn.click(
         fn=generate_pdf, inputs=[result_state], outputs=[pdf_file_output],

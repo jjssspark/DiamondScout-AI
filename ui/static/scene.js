@@ -54,7 +54,6 @@
 
 
   var IMG = {};
-  var previewCell = null;
 
   function reduceMotion() {
     return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -628,9 +627,15 @@
     pad.innerHTML = html;
   }
 
+  /* 코스를 고르면 그 코스로 던지는 장면을 재생한다.
+
+     anim.idx가 존 프리즘과 공 궤적의 목표 칸이다. 예전에는 여기서 쓰이지 않는 변수만
+     바꾸고 anim.idx를 안 건드려서, 버튼을 눌러도 같은 장면을 다시 그릴 뿐이었다.
+     버튼도 눌린 티가 안 났다 - is-on과 aria-pressed가 anim.idx를 보기 때문이다. */
   function pickCell(i) {
-    previewCell = i;
-    render();
+    anim.idx = i;
+    layoutCells();
+    playPitch();
   }
 
   function bindPointerHandlers() {
@@ -711,17 +716,21 @@
     return true;
   }
 
-  function update(payload) {
+  function update(payload, tries) {
     if (!payload) { return; }
     if (!mount()) {
-      window.requestAnimationFrame(function () { update(payload); });
+      /* 씬이 아직 DOM에 없다. 결과 단계로 넘어오기 전이면 영영 안 나타날 수도 있으므로
+         무한히 기다리지 않는다. 단계가 바뀔 때 refresh()가 다시 부른다. */
+      var left = typeof tries === "number" ? tries : 60;
+      if (left > 0) {
+        window.requestAnimationFrame(function () { update(payload, left - 1); });
+      }
       return;
     }
     S.mode = payload.mode === "batter" ? "batter" : "pitcher";
     S.bats = payload.bats === "R" ? "R" : "L";
     if (payload.cells && payload.cells.length === 9) { cells = payload.cells.slice(); }
     if (typeof payload.target === "number") { anim.idx = payload.target; }
-    previewCell = null;
     render();
 
     /* 몸쪽/바깥쪽 반전 점검. 통과하면 조용하고, 깨지면 콘솔에 남긴다. */
@@ -732,9 +741,33 @@
     }
   }
 
+  /* 씬이 화면에 나타났을 때 붙잡아 한 번 그린다.
+
+     두 가지를 같이 해결한다.
+     - 분석 실행 전에도 존과 코스 버튼이 보여야 한다. layoutCells()는 render() 안에
+       있고 render()는 update()에서만 불리는데, update()는 분석 결과가 올 때만 온다.
+       그대로 두면 #coursePad가 빈 div로 남아 눌리지 않는 컨트롤이 된다.
+     - 단계 흐름에서 결과 단계는 처음에 DOM에 없다. 로드 시점에는 잡을 대상이 없고,
+       그 단계로 넘어온 뒤에야 잡을 수 있다.
+
+     데이터는 중립이다(cells가 전부 0이라 히트맵 색이 안 붙는다). 분석을 돌리면
+     update()가 같은 자리에 실제 값을 채운다.
+
+     Gradio가 DOM을 붙이는 시점이 이 호출보다 늦을 수 있어 프레임을 넘겨가며 다시 본다.
+     무한 재시도는 하지 않는다 - 씬이 없는 화면에서 rAF 루프가 계속 도는 걸 막는다. */
+  function refresh(tries) {
+    if (mount()) { render(); return; }
+    if (tries > 0) {
+      window.requestAnimationFrame(function () { refresh(tries - 1); });
+    }
+  }
+  refresh(60);
+
   window.dsScene = {
     mount: mount,
     update: update,
+    /* 단계 이동처럼 씬이 새로 화면에 붙는 시점에 부른다. mount()는 여러 번 불러도 안전하다. */
+    refresh: function () { refresh(60); },
     play: function () { if (mounted) { playPitch(); } },
     selfCheck: function () {
       return {
