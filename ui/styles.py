@@ -423,5 +423,9 @@ body {
 
 /* 존 씬은 탭보다 먼저 정의된다(탭 안 이벤트 배선이 scene_payload를 참조하기 때문).
    화면에서는 탭 아래에 와야 하므로 순서만 뒤로 민다. */
+/* 씬은 탭 밖에서 만들어지고 JS가 지금 보이는 탭의 슬롯으로 옮긴다. 옮겨지기 전에는
+   맨 아래에 잠깐 붙어 있으므로 순서를 뒤로 민다. */
 .gradio-container .ds-scene-group { order: 99 !important; }
+.ds-scene-slot { width: 100%; }
+.ds-scene-slot .ds-scene-group { order: 0 !important; width: 100%; }
 """
