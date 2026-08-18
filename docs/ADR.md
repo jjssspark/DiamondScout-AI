@@ -339,7 +339,8 @@ RandomForest 백엔드 삭제. `backend="rf"`는 로컬 비교용으로 남겼�
 
 ### 후속 과제
 
-- Task 9 확률 캘리브레이션. top-1은 안 오르지만 화면에 띄우는 확률값의 신뢰도가 오른다.
+- 확률 캘리브레이션은 마쳤다. 온도 스케일링으로 test ECE 0.0126 -> 0.0081. 순위를
+  안 바꾸는 방식이라 top-k는 그대로다. 계수는 `models/calibration.json`에 있다.
 - 실제 Render 배포에서 메모리 확인. 로컬(macOS) 실측은 app.py 전체 349MB다.
 - 투수 모드 재랭킹은 정답 라벨이 없어 오프라인 검증이 원리적으로 불가능하다. 타자
   모드만 측정했다.
@@ -348,8 +349,9 @@ RandomForest 백엔드 삭제. `backend="rf"`는 로컬 비교용으로 남겼�
 
 - `docs/PERFORMANCE.md` — 모든 수치의 출처와 재현 명령
 - `output/metrics/` — `lgbm_metrics_2025.json`, `ensemble_gate_2025.json`,
-  `serving_accuracy_2025.json`, `batter_pitch_gain_2025.json`, `feature_gain_2025.json`
+  `serving_accuracy_2025.json`, `batter_pitch_gain_2025.json`, `feature_gain_2025.json`,
+  `reliability_2025.png`
 - 재현: `scripts/train_lgbm.py`, `scripts/train_seq.py`, `scripts/eval_ensemble.py`,
-  `scripts/eval_serving.py`, `scripts/eval_batter_pitch_gain.py`
+  `scripts/eval_serving.py`, `scripts/eval_batter_pitch_gain.py`, `scripts/calibrate_model.py`
 
 ---
