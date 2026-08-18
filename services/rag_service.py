@@ -62,7 +62,7 @@ DOMAIN_DOCS: list[str] = [
     "walk_risk(볼넷 위험)는 예측된 top3 구종이 볼(ball)로 판정된 비율의 평균이다. 값이 높을수록 볼넷으로 이어질 가능성이 크다.",
     "사용자 전략 코멘트에 '빼고', '고의4구', '볼넷' 같은 표현이 있으면 evasive_pitching으로 해석되어, 3x3 히트맵에서 존 정중앙 확률을 낮추고 존 모서리 확률을 높이는 방향으로 반영된다.",
     "사용자 전략 코멘트에 '적극적으로', '존 안으로', '정면승부' 같은 표현이 있으면 aggressive_pitching으로 해석되어, 3x3 히트맵에서 존 정중앙 확률을 높이는 방향으로 반영된다.",
-    "추천 구종(recommended_pitch)은 RandomForest 모델이 예측한 확률이 가장 높은 구종이다. 피해야 할 구종(avoid_pitch)은 해당 투수가 실제로 던지는 구종 중 예측 확률이 가장 낮은 구종이다.",
+    "추천 구종(recommended_pitch)은 LightGBM + GRU 앙상블 모델이 예측한 확률이 가장 높은 구종이다. 피해야 할 구종(avoid_pitch)은 해당 투수가 실제로 던지는 구종 중 예측 확률이 가장 낮은 구종이다.",
     "타자 모드의 노릴 코스(target_zone)와 대응 전략(counter_strategy)은 투수 모드와 동일한 top3 예측 결과에, 사용자 코멘트 해석 결과를 반영해 만들어진다.",
 ] + [f"{label}: {desc}" for label, desc in PITCH_LABEL_DESCRIPTIONS.items()] + _load_knowledge_chunks()
 

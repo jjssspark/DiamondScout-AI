@@ -12,10 +12,12 @@ services/scouting_service.py의 ScoutingService를 사용해 "내가 투수라�
     (이 프로젝트는 venv를 쓰므로 실제로는 ./venv/bin/python app.py 로 실행)
 """
 
+import json
 import os
 import re
 import textwrap
 from datetime import datetime
+from pathlib import Path
 
 import gradio as gr
 import matplotlib.pyplot as plt
@@ -38,6 +40,7 @@ from ui.result_panel import (
     render_top3_cards,
     risk_level,
 )
+from ui.scene import build_scene_payload, render_scene_canvas, scene_engine_js
 from ui.styles import CUSTOM_CSS
 from ui.trajectory_view import render_batter_hotcold_zone, render_pitcher_hotcold_zone
 from ui.zone_heatmap import (
@@ -570,9 +573,10 @@ def run_pitcher_analysis(
          "cell": scouting_service.get_zone_cell_estimate(pitcher_id, item["pitch_label"])}
         for i, item in enumerate(result["predicted_top3_pitches"])
     ]
-    hotcold_html = render_pitcher_zone_board(
-        pr["zone_hit_risk_scores"], pr["best_zone_cell"], pr["recommended_pitch"], batter_stand, pitcher_trajectories,
-    )
+    scene_json = json.dumps(build_scene_payload(
+        mode="pitcher", stand=batter_stand, zone_scores=pr["zone_hit_risk_scores"],
+        highlight_cell=pr["best_zone_cell"], metric="HIT_RISK", trajectories=pitcher_trajectories,
+    ))
 
     meta = {
         "my_label": f"🧑‍⚾ 내 투수: {scouting_service.get_pitcher_name(pitcher_id)} (ID {pitcher_id})",
@@ -591,7 +595,7 @@ def run_pitcher_analysis(
 
     return (
         matchup_hand_text, top3_html, risk_html, recommend_card_html, batter_weakness_html,
-        hotcold_html, report_md, pitcher_state, status_html,
+        scene_json, report_md, pitcher_state, status_html,
     )
 
 
@@ -647,9 +651,10 @@ def run_batter_analysis(
         {"pitch_label": loc["pitch_label"], "rank": i + 1, "cell": loc["zone_cell"]}
         for i, loc in enumerate(br["expected_locations"])
     ]
-    hotcold_html = render_batter_zone_board(
-        br["zone_probability_scores"], br["target_zone_cell"], my_stand, batter_trajectories,
-    )
+    scene_json = json.dumps(build_scene_payload(
+        mode="batter", stand=my_stand, zone_scores=br["zone_probability_scores"],
+        highlight_cell=br["target_zone_cell"], metric="PITCH_PROB", trajectories=batter_trajectories,
+    ))
 
     meta = {
         "my_label": f"🏏 내 타자: {get_batter_display(batter_id)}",
@@ -668,7 +673,7 @@ def run_batter_analysis(
 
     return (
         matchup_hand_text, top3_html, risk_html, recommend_card_html, pitcher_pattern_html,
-        hotcold_html, report_md, batter_state, status_html,
+        scene_json, report_md, batter_state, status_html,
     )
 
 
@@ -878,9 +883,23 @@ def _step_next(current_step: int):
     return (gr.Tabs(selected=target - 1), target, *_step_dot_updates(target), _analyze_btn_update(target))
 
 
-with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
+# 씬 엔진은 head=로 넣는다. gr.HTML 안의 <script>는 innerHTML 경로라 실행이 보장되지 않는다.
+gr.set_static_paths(paths=[Path(__file__).resolve().parent / "ui" / "static" / "assets"])
+SCENE_HEAD = f"<script>{scene_engine_js()}</script>"
+_SCENE_UPDATE_JS = "(v) => { if (v && window.dsScene) { window.dsScene.update(JSON.parse(v)); } }"
+
+
+def _empty_scene_payload(mode: str) -> str:
+    """분석 전의 씬. 9칸을 전부 0으로 두면 엔진이 중립색으로 그린다."""
+    return json.dumps(build_scene_payload(
+        mode=mode, stand="L", zone_scores={i: 0.0 for i in range(10)},
+        highlight_cell=4, metric="HIT_RISK", trajectories=None,
+    ))
+
+
+with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS, head=SCENE_HEAD) as demo:
     gr.Markdown("# ⚾ DiamondScout AI")
-    gr.Markdown("투수 모드 / 타자 모드로 나눠, 다음 구종 예측(RandomForest) + 위험도 + 상대 분석 + Q&A를 한 화면에서 확인하는 전력분석 데모")
+    gr.Markdown("투수 모드 / 타자 모드로 나눠, 다음 구종 예측(LightGBM + GRU 앙상블) + 위험도 + 상대 분석 + Q&A를 한 화면에서 확인하는 전력분석 데모")
 
     with gr.Column(elem_classes=["ds-landing"], visible=True) as landing_view:
         gr.HTML("""
@@ -904,6 +923,17 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 '<div class="ds-lf-desc">분석 결과를 근거로 후속 질문에 즉석으로 답합니다</div></div>'
             )
         landing_start_btn = gr.Button("시작하기", variant="primary", elem_classes=["ds-btn-analyze", "ds-landing-start"])
+
+    # 스트라이크 존 씬. 투수/타자 탭이 같은 캔버스를 함께 쓴다. 씬 엔진이 고정
+    # 엘리먼트 ID를 쓰기 때문에 탭마다 한 벌씩 두면 서로를 덮어쓴다.
+    with gr.Group(visible=False, elem_classes=["ds-scene-group"]) as scene_group:
+        gr.Markdown("#### STRIKE ZONE BOARD", elem_classes=["ds-board-section-title"])
+        gr.HTML(render_scene_canvas())
+        scene_payload = gr.Textbox(
+            value=_empty_scene_payload("pitcher"), visible=False, elem_id="scenePayload",
+        )
+        scene_payload.change(None, scene_payload, None, js=_SCENE_UPDATE_JS)
+        demo.load(None, scene_payload, None, js=_SCENE_UPDATE_JS)
 
     with gr.Tabs(visible=False) as main_tabs:
         # ------------------------------------------------------------------
@@ -1001,9 +1031,6 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                         gr.Markdown("#### 상대 타자 약점")
                         p_batter_weakness_output = gr.HTML()
 
-                gr.Markdown("#### STRIKE ZONE BOARD", elem_classes=["ds-board-section-title"])
-                p_hotcold_plot = gr.HTML()
-
                 with gr.Accordion("상세 리포트 전체 보기 (근거 · 참고 데이터)", open=False, elem_classes=["ds-report-accordion"]):
                     p_report_output = gr.Markdown(elem_classes=["ds-report-md"])
                 p_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
@@ -1033,7 +1060,7 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 ],
                 outputs=[
                     p_hand_output, p_top3_output, p_risk_html_output, p_recommend_card_output,
-                    p_batter_weakness_output, p_hotcold_plot, p_report_output, p_result_state, p_status_output,
+                    p_batter_weakness_output, scene_payload, p_report_output, p_result_state, p_status_output,
                 ],
             ).then(
                 fn=lambda: gr.Group(visible=True), outputs=[p_board_group],
@@ -1159,9 +1186,6 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                         gr.Markdown("#### 상대 투수 패턴")
                         b_pitcher_pattern_output = gr.HTML()
 
-                gr.Markdown("#### STRIKE ZONE BOARD", elem_classes=["ds-board-section-title"])
-                b_hotcold_plot = gr.HTML()
-
                 with gr.Accordion("상세 리포트 전체 보기 (근거 · 참고 데이터)", open=False, elem_classes=["ds-report-accordion"]):
                     b_report_output = gr.Markdown(elem_classes=["ds-report-md"])
                 b_pdf_btn = gr.Button("PDF 리포트 다운로드 생성", elem_classes=["ds-btn-pdf"])
@@ -1189,7 +1213,7 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 ],
                 outputs=[
                     b_hand_output, b_top3_output, b_risk_html_output, b_recommend_card_output,
-                    b_pitcher_pattern_output, b_hotcold_plot, b_report_output, b_result_state, b_status_output,
+                    b_pitcher_pattern_output, scene_payload, b_report_output, b_result_state, b_status_output,
                 ],
             ).then(
                 fn=lambda: gr.Group(visible=True), outputs=[b_board_group],
@@ -1229,8 +1253,8 @@ with gr.Blocks(title="DiamondScout AI", css=CUSTOM_CSS) as demo:
                 )
 
     landing_start_btn.click(
-        fn=lambda: (gr.Column(visible=False), gr.Tabs(visible=True)),
-        outputs=[landing_view, main_tabs],
+        fn=lambda: (gr.Column(visible=False), gr.Tabs(visible=True), gr.Group(visible=True)),
+        outputs=[landing_view, main_tabs, scene_group],
     )
 
     demo.load(
