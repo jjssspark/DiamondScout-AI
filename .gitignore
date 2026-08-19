@@ -26,6 +26,9 @@ build/
 # 산출물
 output/*
 !output/screenshots/
+# README가 상단에 거는 데모 GIF와 전체 영상. 저장소에 없으면 GitHub에서 깨진다.
+# 셋 합쳐 6MB대라 히스토리에 남겨도 감당된다.
+!output/demo/
 # 지표 산출물은 문서가 출처로 인용한다. 저장소에 없으면 수치를 확인할 방법이 없다.
 # 전부 합쳐 수백 KB라 히스토리에 남겨도 부담이 없다.
 !output/metrics/
