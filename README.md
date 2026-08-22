@@ -12,7 +12,7 @@ LLM 코치가 그 이유까지 설명해주는 야구 전력분석 툴
 [![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Gradio](https://img.shields.io/badge/Gradio-6.19-FF7C00?style=flat-square&logo=gradio&logoColor=white)](https://www.gradio.app/)
 [![LightGBM](https://img.shields.io/badge/LightGBM-4.7-9ACD32?style=flat-square)](https://lightgbm.readthedocs.io/)
-[![FAISS](https://img.shields.io/badge/FAISS-RAG-0467DF?style=flat-square&logo=meta&logoColor=white)](https://faiss.ai/)
+[![Ollama](https://img.shields.io/badge/Ollama_/_Groq-LLM-1a2b4a?style=flat-square)](https://ollama.com/)
 [![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)](LICENSE)
 
 [![바로 써보기](https://img.shields.io/badge/▶_바로_써보기-diamondscout--ai.onrender.com-D12E2E?style=for-the-badge)](https://diamondscout-ai.onrender.com)
@@ -31,7 +31,7 @@ LLM 코치가 그 이유까지 설명해주는 야구 전력분석 툴
 
 야구 중계 보면 해설위원이 "이 상황이면 슬라이더 각이죠" 하는 장면이 나옵니다. 그 판단을 데이터로 해보자는 게 이 프로젝트입니다.
 
-지금 볼카운트, 주자, 점수, 직전 5구를 넣으면 다음에 올 구종을 확률로 뽑아줍니다. 여기까지는 그냥 분류 모델인데, 숫자만 던져주면 "그래서 뭘 하라는 건데"가 남습니다. 그래서 LLM 코치를 붙여서 왜 그 구종인지, 어느 코스로 던지라는 건지 말로 설명하게 했습니다.
+지금 볼카운트, 주자, 점수, 직전 5구를 넣으면 다음에 올 구종을 확률로 뽑아줍니다. 여기까지는 그냥 분류 모델인데, 숫자만 던져주면 "그래서 뭘 하라는 건데"가 남습니다. 그래서 결과를 놓고 되물을 수 있는 LLM 코치를 붙였습니다. "왜 포심이야?"라고 물으면 방금 나온 예측 확률·구사 비율·상대 타자 약점을 근거로 묶어 답합니다.
 
 <table>
 <tr>
@@ -75,7 +75,7 @@ top-3 정확도<br/>
 | 🏏 | 타자 모드 | 상대 투수의 다음 구종과 궤적을 예측하고, 노려야 할 코스와 참아야 할 유인구를 타자 시점 화면으로 제시 |
 | 🎛️ | 상황 조작 | 볼·스트라이크·아웃 램프, 주자, 이닝, 점수를 눌러 상황을 바꾼 뒤 다시 분석하면 그 상황 기준으로 재계산 |
 | 💬 | Instant Scout Q&A | 방금 나온 분석 결과를 근거로 "왜 포심이 위험해?" 같은 후속 질문에 바로 답변 |
-| 📄 | 코칭 리포트 | 분석 근거를 문장으로 정리해서 화면에 띄우고 PDF로 내려받기 |
+| 📄 | 코칭 리포트 | 분석 근거를 정해진 형식으로 정리해 화면에 띄우고 PDF로 내려받기. 템플릿 조립이라 LLM 없이도 그대로 나옴 |
 
 <br/>
 
@@ -153,14 +153,15 @@ flowchart TD
     IN --> PRED["⚙️ 구종 예측<br/>LightGBM + GRU 앙상블"]
     PRED --> OUT["📊 분석 결과<br/>구종 Top-3 · 위험도 4종<br/>추천 코스"]
     OUT --> ZONE["🥎 3D 스트라이크 존<br/>추천 코스로 던지는 장면 재생"]
-    OUT --> RAG[("🔍 FAISS<br/>코칭룰 + 방금 나온 분석결과")]
-    RAG --> LLM["💬 LLM 코치<br/>코칭 리포트<br/>Instant Scout Q&A"]
-    OUT -. 로그 (실패해도 무시) .-> DB[("MariaDB")]
+    OUT --> REPORT["📄 코칭 리포트 · PDF<br/>템플릿으로 조립"]
+    OUT --> LLM["💬 LLM 코치<br/>분석 결과를 근거로<br/>Instant Scout Q&A"]
+    LLM -. 질문·답변 + FAISS 검색 컨텍스트 .-> DB[("MariaDB 로그<br/>실패해도 무시")]
 
     style IN fill:#faf7f2,stroke:#999
     style PRED fill:#1a2b4a,stroke:#D12E2E,stroke-width:2px,color:#fff
     style OUT fill:#D12E2E,stroke:#8a1a1a,stroke-width:2px,color:#fff
     style ZONE fill:#e8f0e8,stroke:#4a7c4a
+    style REPORT fill:#faf7f2,stroke:#999
     style LLM fill:#f5f0e8,stroke:#1a2b4a
     style DB fill:#eee,stroke:#aaa,color:#666
 ```
@@ -226,13 +227,20 @@ RandomForest에서 앙상블로 갈아타면서 모델이 188MB에서 9.95MB로 
 | 영역 | 고른 것 | 왜 |
 |---|---|---|
 | 구종 예측 | LightGBM + GRU 앙상블 | 정형 피처라 GBDT가 잘 맞음. 188MB RandomForest를 9.9MB로 줄이면서 정확도까지 올랐음. GRU는 직전 5구만 봐서 LightGBM과 틀리는 지점이 달라 섞으면 오름. 학습만 Keras로 하고 서빙은 numpy 순전파라 배포에 TensorFlow가 안 들어감 |
-| 임베딩 | paraphrase-multilingual-MiniLM-L12-v2 | 한국어 전략 코멘트와 한국어 코칭룰 문서를 같은 벡터 공간에서 찾아야 해서 다국어 모델이 필요했음 |
-| 벡터 검색 | FAISS IndexFlatIP (인메모리) | 문서가 수십에서 수백 개 수준이라 근사 인덱스 없이 정확한 코사인 유사도로 충분 |
-| LLM | Ollama (로컬) / Groq (배포) | 매치업 데이터를 그대로 프롬프트에 넣어야 해서 로컬에서 끝내는 쪽이 부담 없음. 다만 무료 인스턴스에 Ollama를 상시 띄울 수 없어서 배포판만 Groq으로 바꿈 |
+| 벡터 검색 | FAISS IndexFlatIP + paraphrase-multilingual-MiniLM-L12-v2 | 코칭룰과 방금 나온 분석 결과를 인덱스에 넣고 질문과 비슷한 조각을 찾음. 한국어 문서라 다국어 임베딩이 필요했고, 문서가 수백 개 수준이라 근사 인덱스 없이 정확한 코사인 유사도로 충분. 다만 지금 이 검색 결과는 답변 생성에 들어가지 않고 Q&A 로그에만 남는다 (아래 참고) |
+| LLM | Ollama (로컬) / Groq (배포) | Q&A 답변을 만드는 유일한 LLM 경로. 매치업 데이터를 그대로 프롬프트에 넣어야 해서 로컬에서 끝내는 쪽이 부담 없음. 다만 무료 인스턴스에 Ollama를 상시 띄울 수 없어서 배포판만 Groq으로 바꿈 |
 | UI | Gradio | 탭 구조와 실시간 상태 갱신을 적은 코드로 만들 수 있음 |
 | 로그 DB | MariaDB | 분석·Q&A·시뮬레이션 기록만 저장하는 용도라 가벼운 관계형 DB면 충분. `.env`에 접속 정보가 없으면 로깅만 꺼지고 나머지는 그대로 돌아감 |
 
-고민했던 것과 버린 것은 [docs/ADR.md](docs/ADR.md)에 결정 단위로 정리해뒀습니다.
+### FAISS를 붙여놓고 답변에는 안 쓰는 이유
+
+솔직하게 적어둡니다. FAISS 인덱스는 만들어져 있고 질문이 들어올 때마다 검색도 돕니다. 그런데 검색 결과(`context_chunks`)는 `db_save_qa_log()`로만 흘러가고, 답변을 만드는 `CoachAgent.answer()` 인자에는 들어가지 않습니다.
+
+그래서 지금 Q&A 답변은 RAG 결과가 아니라 방금 나온 분석 결과 자체를 근거로 만듭니다. 예측 확률, 구사 비율, 상대 타자 약점, 위험도를 프롬프트에 직접 넣습니다. 검색 결과는 "그때 어떤 코칭룰이 가까웠는지"를 로그에 남기는 용도로만 씁니다.
+
+배포판 의존성에서 `faiss-cpu`와 `sentence-transformers`를 뺀 것도 이 때문입니다. 빠지면 `rag_service=None`으로 degrade 하는데 답변은 그대로 나옵니다. 512MB 인스턴스에서 답변에 안 쓰이는 임베딩 모델을 올릴 이유가 없었습니다.
+
+고민했던 것과 버린 것은 [docs/ADR.md](docs/ADR.md)에 결정 단위로 정리해뒀습니다. 다만 ADR-0002는 "FAISS RAG + Ollama 채택"으로 적혀 있어 지금 구현과 어긋납니다. 아직 갱신하지 않았습니다.
 
 <br/>
 
@@ -257,9 +265,9 @@ python app.py
 
 <br/>
 
-- LLM 코칭 리포트와 Q&A를 쓰려면 Ollama가 로컬에 떠 있어야 합니다. `brew install ollama` 후 쓸 모델을 pull 하세요. Ollama가 없어도 앱은 돌아가고, 근거 기반 문장 조합으로 대체 답변이 나갑니다.
+- Instant Scout Q&A를 LLM으로 돌리려면 Ollama가 로컬에 떠 있어야 합니다. `brew install ollama` 후 쓸 모델을 pull 하세요. Ollama가 없어도 앱은 돌아가고, 근거 기반 문장 조합으로 대체 답변이 나갑니다.
 - MariaDB 로그 저장을 쓰려면 [`database/README.md`](database/README.md)를 보고 스키마부터 만드세요. 안 만들어도 로깅만 꺼집니다.
-- 배포는 `render.yaml` 하나로 됩니다. 무료 인스턴스에서는 RAG 검색이 의존성 문제로 꺼진 채 degrade 합니다.
+- 배포는 `render.yaml` 하나로 됩니다. 무료 인스턴스에서는 FAISS 검색이 의존성에서 빠져 `rag_service=None`으로 degrade 하는데, 답변 생성에는 안 쓰이므로 Q&A는 그대로 동작합니다.
 
 </details>
 
@@ -279,7 +287,7 @@ pytest tests/ -v
 DiamondScout_AI/
 ├── app.py              진입점 — 모델·서비스 조립 + Gradio UI
 ├── models/             구종 예측 모델 (LightGBM + GRU) + 서빙 prior 테이블
-├── services/           예측·전력분석·RAG·LLM 코칭·DB 로깅
+├── services/           예측·전력분석·LLM 코치·벡터검색·DB 로깅
 ├── ui/                 히트맵·궤적·Q&A 화면 컴포넌트
 ├── database/           MariaDB 스키마와 설정 가이드
 ├── data/               스탯캐스트 원본·전처리 데이터, 코칭룰 문서
@@ -296,7 +304,7 @@ DiamondScout_AI/
 | 문서 | 내용 |
 |---|---|
 | [PRD](docs/PRD.md) | 서비스 컨셉, 기능 명세, 리포트 형식 |
-| [ADR](docs/ADR.md) | 앙상블 전환, RAG + LLM, Gradio 선택의 맥락과 근거 |
+| [ADR](docs/ADR.md) | 앙상블 전환, Q&A LLM, Gradio 선택의 맥락과 근거 |
 | [PERFORMANCE](docs/PERFORMANCE.md) | 정확도·응답시간·메모리 실측치, 재봤지만 안 쓴 것들 |
 | [TROUBLESHOOTING](TROUBLESHOOTING.md) | 개발 중 터진 버그와 환경 이슈, 원인 추적 과정 |
 | [회고](docs/RETROSPECTIVE.md) | 다시 만든다면 뭘 다르게 할지, 남겨둔 기술 부채 |

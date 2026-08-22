@@ -57,8 +57,10 @@ plt.rcParams["axes.unicode_minus"] = False
 
 scouting_service = ScoutingService()
 
-# RAG(임베딩+FAISS)/LLM(Ollama)은 무거운 선택적 의존성이라 초기화 실패가 앱 전체를
-# 죽이지 않도록 감싸고, 실패 시 Instant Scout Q&A는 rule-based 안내만 제공한다.
+# FAISS 검색(RAGService)과 LLM(CoachAgent)은 무거운 선택적 의존성이라 초기화 실패가
+# 앱 전체를 죽이지 않도록 각각 따로 감싼다. FAISS 검색 결과는 Q&A 로그에만 남기고 답변
+# 생성에는 쓰지 않으므로, RAGService가 없어도 Q&A는 그대로 동작한다. Q&A가 안내 메시지로
+# 대체되는 건 아래 CoachAgent 초기화가 실패했을 때뿐이다.
 try:
     from services.rag_service import RAGService
 
@@ -704,8 +706,10 @@ def _minimal_chat_fallback(last_result: dict | None) -> str:
 
 
 def handle_chat(message, history, state: dict | None):
-    """RAG로 컨텍스트를 찾고 LLMScout으로 답한다. RAG/LLM 어느 단계가 실패해도 예외를
-    흡수해 채팅만 안내 메시지로 대체하고 앱은 죽지 않는다."""
+    """CoachAgent가 방금 나온 분석 결과(last_result)를 근거로 답한다. FAISS 검색도 같은
+    요청에서 돌지만 그 결과(context_chunks)는 db_save_qa_log로만 가고 답변 생성에는
+    들어가지 않는다. 검색·LLM 어느 단계가 실패해도 예외를 흡수해 채팅만 안내 메시지로
+    대체하고 앱은 죽지 않는다."""
     history = history or []
     if not message or not message.strip():
         return history, ""
@@ -723,14 +727,14 @@ def handle_chat(message, history, state: dict | None):
                 rag_service.build_index(last_result)
                 context_chunks = rag_service.retrieve(message, k=3)
         except Exception as exc:  # noqa: BLE001
-            print(f"[경고] RAG 검색 실패, 컨텍스트 없이 진행합니다: {exc}")
+            print(f"[경고] FAISS 검색 실패, 로그용 컨텍스트 없이 진행합니다: {exc}")
             context_chunks = []
 
         try:
             if coach_agent is not None:
                 # history(이전 대화)를 함께 넘겨 CoachAgent가 대화 상태/반복 감지에 쓰게 한다.
                 # CoachAgent.answer 내부에도 자체 try/except(Ollama 실패 시 evidence 기반
-                # fallback)가 있지만, RAG 결합·예상 밖 state 구조 등 그 바깥에서 터질 수 있는
+                # fallback)가 있지만, 예상 밖 state 구조 등 그 바깥에서 터질 수 있는
                 # 예외까지 대비해 이 레벨에서도 한 번 더 방어한다.
                 answer_info = coach_agent.answer(message, history, last_result)
                 answer = answer_info["answer"]
@@ -738,7 +742,7 @@ def handle_chat(message, history, state: dict | None):
                 # intent/focus는 화면에 노출하지 않고 서버 로그에만 남겨 개발 확인용으로 쓴다.
                 print(f"[Q&A] intent={answer_info.get('intent')} focus={answer_info.get('focus')}")
             else:
-                answer = "Instant Scout Q&A를 사용할 수 없습니다 (LLM/RAG 초기화 실패)."
+                answer = "Instant Scout Q&A를 사용할 수 없습니다 (LLM 초기화 실패)."
                 answer_source = "unavailable"
         except Exception as exc:  # noqa: BLE001
             print(f"[경고] Instant Scout 답변 생성 실패: {exc}")
