@@ -7,12 +7,13 @@ DiamondScout_AI의 주요 아키텍처 결정을 기록한다. 형식은 Michael
 | ID | 제목 | 상태 |
 |---|---|---|
 | [ADR-0001](#adr-0001--다음-구종-예측--randomforest를-프로덕션에-lstm은-평가용으로-유지) | 다음 구종 예측 — RandomForest를 프로덕션에, LSTM은 평가용으로 유지 | Superseded by ADR-0006 |
-| [ADR-0002](#adr-0002--instant-scout-qa--faiss-rag--ollama-로컬-llm-채택) | Instant Scout Q&A — FAISS RAG + Ollama 로컬 LLM 채택 | Accepted |
+| [ADR-0002](#adr-0002--instant-scout-qa--faiss-rag--ollama-로컬-llm-채택) | Instant Scout Q&A — FAISS RAG + Ollama 로컬 LLM 채택 | Superseded by ADR-0008 |
 | [ADR-0003](#adr-0003--ui-프레임워크로-gradio-채택) | UI 프레임워크로 Gradio 채택 | Accepted |
 | [ADR-0004](#adr-0004--db-로깅-실패-시-핵심-기능-무중단-설계) | DB 로깅 실패 시 핵심 기능 무중단 설계 | Accepted |
 | [ADR-0005](#adr-0005--gradio-sharetrue-임시-터널로-배포) | Gradio `share=True` 임시 터널로 배포 | Superseded by ADR-0007 |
 | [ADR-0006](#adr-0006--다음-구종-예측--피처-보강--lightgbm--gru-앙상블로-전환) | 다음 구종 예측 — 피처 보강 + LightGBM + GRU 앙상블로 전환 | Accepted |
 | [ADR-0007](#adr-0007--공개-데모를-render-무료-티어에-배포) | 공개 데모를 Render 무료 티어에 배포 | Accepted |
+| [ADR-0008](#adr-0008--qa-답변-근거를-rag-검색-결과에서-구조화된-분석-결과로-전환) | Q&A 답변 근거를 RAG 검색 결과에서 구조화된 분석 결과로 전환 | Accepted |
 
 ---
 
@@ -73,7 +74,7 @@ DiamondScout_AI의 주요 아키텍처 결정을 기록한다. 형식은 Michael
 
 ## ADR-0002 · Instant Scout Q&A — FAISS RAG + Ollama 로컬 LLM 채택
 
-상태: Accepted
+상태: Superseded by [ADR-0008](#adr-0008--qa-답변-근거를-rag-검색-결과에서-구조화된-분석-결과로-전환)
 날짜: 2026-08-05 (기록일. 실제 결정은 코드 기준 그 이전에 이루어짐)
 
 ### Context
@@ -459,5 +460,74 @@ Render에서 Ollama를 상시 구동할 수 없다. `LLM_BACKEND` 환경변수�
 - `.github/workflows/keep-warm.yml` — 슬립 완화
 - `requirements-deploy.txt` — 무엇을 왜 뺐는지 주석
 - `docs/PERFORMANCE.md`의 "배포 구성" 절 — 아티팩트 목록과 메모리 실측
+
+---
+
+## ADR-0008 · Q&A 답변 근거를 RAG 검색 결과에서 구조화된 분석 결과로 전환
+
+상태: Accepted
+날짜: 2026-08-22 (기록일. 실제 전환은 코드 기준 2026-08-03 초기 커밋 이전에 이미 이루어져 있었음)
+
+> 이 ADR은 결정 당시가 아니라 나중에 코드를 역추적해 쓴 것이다. 어디까지가 코드에서
+> 확인한 사실이고 어디부터가 추론인지 아래에 나눠 적는다.
+
+### Context
+
+[ADR-0002](#adr-0002--instant-scout-qa--faiss-rag--ollama-로컬-llm-채택)에서 FAISS RAG + Ollama를 채택했다. 그런데 지금 코드는 그렇게 동작하지 않는다.
+
+`app.py`의 `handle_chat`은 질문마다 FAISS 검색을 돌려 `context_chunks`를 만든다. 하지만 그 값이 가는 곳은 `db_save_qa_log(...)` 하나뿐이고, 답변을 만드는 `coach_agent.answer(message, history, last_result)` 인자에는 들어가지 않는다.
+
+코드에서 확인한 사실은 다음 네 가지다.
+
+1. 구 `LLMScout.answer(question, context_chunks, analysis_result, history)`는 `context_chunks`를 받아 프롬프트의 `[참고 문서]` 섹션에 실제로 넣었다. 즉 RAG가 답변에 들어가던 시기가 있었다.
+2. 그 시기에 이미 한계를 인식하고 있었다. `LLMScout._build_analysis_summary`의 docstring이 근거다 — "RAG 검색 결과(context_chunks)는 자유 텍스트라 핵심 수치를 놓칠 수 있어, Ollama 프롬프트에 analysis_result의 핵심 값을 직접 요약해 넣는다."
+3. `LLMScout`은 "이 질문 문구 → 이 고정 문장" 식 intent 분기가 30개 넘게 쌓이는 한계에 부딪혀 `CoachAgent`로 교체됐다 (`services/coach_agent.py` 상단 주석).
+4. `CoachAgent.answer(message, history, analysis_result)`는 3인자다. `context_chunks`를 받는 자리가 없다. 설계 원칙 자체가 "답변 문장은 매번 (질문 원문 + focus + evidence + 직전 대화)를 조합해 새로 만든다"이고, 여기서 evidence는 자유 텍스트 문서가 아니라 분석 결과의 구조화된 값이다.
+
+여기부터는 추론이다. RAG 자유 텍스트가 핵심 수치를 놓친다는 문제를 `LLMScout` 단계에서 이미 겪었고(2번), 그 대응으로 구조화된 요약을 프롬프트에 병행해 넣고 있었다. `CoachAgent`를 새로 설계할 때는 아예 evidence 중심으로 가면서 `context_chunks`를 인자에서 뺀 것으로 보인다. 결정 순간을 남긴 커밋이나 메모는 없다. 초기 커밋(`d9ef896`)부터 이미 지금 상태였다.
+
+### 검토했지만 근거를 찾지 못한 가설
+
+"응답이 너무 오래 걸려서 뺐다"는 가설을 확인해봤다. 뒷받침되지 않는다.
+
+- Q&A 타임아웃이 실제로 발동한 로그는 있다 (`docs/PERFORMANCE.md`의 응답 시간 예산 절, 2026-08-05 `read timeout=25`). 다만 이건 `gemma2:latest`의 생성 시간 문제이고 FAISS 검색과 연결되는 기록이 없다.
+- FAISS는 인메모리 `IndexFlatIP`에 문서 수백 개 규모라 검색 자체가 병목이 될 구조가 아니다.
+- 결정적으로, 속도가 이유였다면 검색 호출을 지웠을 것이다. 검색은 지금도 질문마다 그대로 돈다. 답변으로 가는 연결만 끊겨 있다. 이 모양은 성능 조치보다 근거 품질 판단에 가깝다.
+
+### 선택지
+
+1. `context_chunks`를 `CoachAgent.answer()`에 다시 연결한다 — ADR-0002가 살아나지만, 자유 텍스트가 수치를 흐리는 문제를 다시 안게 되고 프롬프트·답변 품질을 재검증해야 한다
+2. 현재 동작을 정식 결정으로 인정하고 문서를 맞춘다 — 답변 근거는 구조화된 분석 결과, FAISS는 로그 적재용
+3. FAISS를 아예 걷어낸다 — 코드는 가장 단순해지지만, Q&A 로그에 남기던 "그때 어떤 코칭룰이 가까웠는지"를 잃는다
+
+### Decision
+
+2번을 택한다.
+
+- Q&A 답변의 근거는 `CoachAgent`가 분석 결과에서 뽑은 evidence로 한다. 예측 확률, 구사 비율, 상대 타자 약점, 위험도가 프롬프트에 직접 들어간다.
+- FAISS 검색은 유지하되 용도를 Q&A 로그 적재로 한정한다. 어떤 코칭룰이 그 질문에 가까웠는지는 나중에 답변 품질을 되짚을 때 쓸 수 있는 기록이다.
+- ADR-0002를 Superseded 처리한다. 다만 ADR-0002가 적어둔 "이 스택 선택은 수업 커리큘럼 요구사항이 우선 조건이었다"는 맥락은 그대로 유효하다. `docs/PRD.md`가 FAISS·RAG 사용을 요구사항으로 명시하고 있고, 인프라는 그대로 남아 동작한다.
+
+3번을 택하지 않은 이유도 여기에 있다. PRD가 요구한 스택이라 걷어내면 요구사항을 벗어난다.
+
+### Consequences
+
+좋아진 것
+
+- 배포 의존성에서 `faiss-cpu`와 `sentence-transformers`를 뺄 수 있다. Render 무료 티어 512MB에서 답변에 쓰이지 않는 임베딩 모델을 올릴 이유가 없다. 빠지면 `app.py`가 `rag_service=None`으로 degrade 하고 Q&A는 그대로 동작한다.
+- 답변이 화면에 뜬 숫자와 어긋나지 않는다. rule-based 폴백과 LLM 답변이 같은 evidence를 보므로 두 경로가 다른 숫자를 말하지 않는다.
+
+받아들이는 것
+
+- `data/knowledge/`의 코칭룰 문서가 답변에 반영되지 않는다. 검색은 되지만 로그로만 간다. 도메인 지식을 답변에 넣고 싶으면 별도 설계가 필요하다.
+- 배포판에서는 검색조차 돌지 않으므로 Q&A 로그의 컨텍스트 칸이 빈다.
+
+### 관련 파일
+
+- `app.py` — `handle_chat`. 검색 결과가 `db_save_qa_log`로만 가는 지점
+- `services/coach_agent.py` — evidence 조합으로 답변을 만드는 본체
+- `services/rag_service.py` — FAISS 인덱스. docstring에 현재 용도 명시
+- `services/llm_scout.py` — 구 구현. `context_chunks`를 프롬프트에 넣던 흔적이 남아 있다
+- `requirements-deploy.txt` — 배포에서 무엇을 왜 뺐는지 주석
 
 ---

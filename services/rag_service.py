@@ -1,8 +1,12 @@
 """
 DiamondScout AI - RAG(검색 증강 생성) 서비스
 야구 전력분석 도메인 설명 문서 + 최신 분석 결과(ScoutingService.analyze() 반환값)를
-HuggingFace 임베딩으로 벡터화하고 FAISS로 유사도 검색해, LLMScout에 전달할 컨텍스트
-조각을 만든다.
+HuggingFace 임베딩으로 벡터화하고 FAISS로 유사도 검색해 컨텍스트 조각을 만든다.
+
+주의: 지금 이 조각은 답변 생성에 들어가지 않는다. app.py의 handle_chat이 검색 결과를
+db_save_qa_log로만 넘기고, 답변은 CoachAgent가 분석 결과를 근거로 따로 만든다. 그래서
+배포용 requirements-deploy.txt에는 faiss-cpu/sentence-transformers가 빠져 있고, 이
+서비스가 없으면 app.py가 rag_service=None으로 degrade 한다.
 """
 
 import glob
