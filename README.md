@@ -240,7 +240,9 @@ RandomForest에서 앙상블로 갈아타면서 모델이 188MB에서 9.95MB로 
 
 배포판 의존성에서 `faiss-cpu`와 `sentence-transformers`를 뺀 것도 이 때문입니다. 빠지면 `rag_service=None`으로 degrade 하는데 답변은 그대로 나옵니다. 512MB 인스턴스에서 답변에 안 쓰이는 임베딩 모델을 올릴 이유가 없었습니다.
 
-고민했던 것과 버린 것은 [docs/ADR.md](docs/ADR.md)에 결정 단위로 정리해뒀습니다. 다만 ADR-0002는 "FAISS RAG + Ollama 채택"으로 적혀 있어 지금 구현과 어긋납니다. 아직 갱신하지 않았습니다.
+이 결정은 [ADR-0008](docs/ADR.md)에 따로 정리했습니다. 원래 있던 ADR-0002("FAISS RAG + Ollama 채택")는 Superseded 처리했습니다. 결정 당시 기록이 남아 있지 않아 코드에서 역추적해 쓴 문서라, 어디까지가 확인한 사실이고 어디부터가 추론인지 ADR 안에 나눠 적었습니다.
+
+고민했던 것과 버린 것은 [docs/ADR.md](docs/ADR.md)에 결정 단위로 정리해뒀습니다.
 
 <br/>
 
